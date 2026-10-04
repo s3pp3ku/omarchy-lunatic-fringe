@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "s3pp3ku.omavoid",
+  "name": "Omarchy: Lunatic Fringe",
+  "version": "0.3.4",
+  "author": "s3pp3ku",
+  "license": "MIT",
+  "description": "Omarchy space-combat screensaver with a dropdown for screensaver selection and live icon/game palettes.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Omarchy: Lunatic Fringe",
+    "description": "Choose Stock or Omarchy: Lunatic Fringe without changing idle or lock timings",
+    "category": "Fun",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "aliases": [
+      "omavoid",
+      "screensaver",
+      "space",
+      "lunatic fringe",
+      "omarchy-lunatic-fringe"
+    ],
+    "schema": [
+      {
+        "key": "iconSize",
+        "type": "integer",
+        "label": "Icon size",
+        "defaultValue": 12,
+        "min": 8,
+        "max": 18,
+        "step": 1
+      }
+    ]
+  }
+}

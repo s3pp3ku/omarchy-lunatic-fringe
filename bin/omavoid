@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+source_path=$(readlink -f -- "${BASH_SOURCE[0]}")
+plugin_root=$(cd -- "$(dirname -- "$source_path")/.." && pwd)
+case "${1:-}" in
+  --help|-h|--render) exec /usr/bin/python -B "$plugin_root/game/fringe.py" "$@" ;;
+esac
+exec 9>"${XDG_RUNTIME_DIR:-/tmp}/lunatic-cyber-${UID}.lock"
+flock -n 9 || exit 0
+exec /usr/bin/python -B "$plugin_root/game/fringe.py" --app-id org.omarchy.screensaver "$@"

@@ -1,0 +1,41 @@
+# 0.3.4
+
+- Restore the player ship from the rounded artwork sprite supplied with the project.
+
+# 0.3.3
+
+- Restore the standard Omarchy gray dropdown and native button styling.
+- Keep separate icon and in-game accent selectors.
+- Set the current icon choice back to white.
+
+# 0.3.2
+
+- Fix dropdown palette options to update their selected state immediately.
+- Return dropdown button outlines to the shell-standard 1px width (2px selected/hovered).
+- Keep the popup outline theme-colored at the standard 2px width.
+
+# 0.3.1
+
+- Tint dropdown button boxes and outlines with the active Omarchy accent, with stronger hover and selected states.
+
+# 0.3.0
+
+- Rename the game to Omarchy: Lunatic Fringe across the title, HUD, menus and launcher.
+- Preserve existing plugin identifiers and storage paths for save compatibility.
+
+# 0.2.0
+
+- Always use the small Omarchy: Lunatic Fringe ship icon, white by default.
+- Add a dropdown for screensaver selection, play, preview and appearance.
+- Independently choose White, Teal or Omarchy colors for the icon and game.
+- Follow active Omarchy theme changes live across ship, trails, shots and HUD.
+
+# 0.1.0
+
+First shareable Omarchy 4 plugin release.
+
+- Stock/Omarchy: Lunatic Fringe screensaver selector with play and preview actions.
+- Separate game process, safe stock fallback and reversible idle adapter.
+- Five campaign missions, saved upgrades, three difficulty levels and replay.
+- Omawing ship, reverse thrust, collisions, destructible asteroids and 45 sounds.
+- Compact HUD, chapter briefings and configurable Left Ctrl fire binding.
