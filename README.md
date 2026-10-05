@@ -17,8 +17,10 @@ Inspired by the 1990s *Lunatic Fringe* screensaver, this community project pairs
 
 ## Features
 
-- Five story missions against the Hater Fleet, followed by repeatable Omarchy contracts and recurring roaming boss hunts.
-- Easy, Normal, and Hard difficulty; collisions, reverse thrust, synthesized sound effects, a four-level credit magnet, and an original evolving two-minute cyberpunk arcade score.
+- Eight Omarchy story missions against the Hater Fleet, followed by repeatable contracts and frequent, scaling world-boss hunts.
+- Six build stats with an 18-point lifetime cap, so each loadout specializes instead of maxing everything; old credit upgrades still work.
+- Five autofire weapon modes, temporary enemy-drop buffs, and health and shield orbs for a generous bullet-storm combat loop.
+- Easy, Normal, and Hard difficulty; collisions, reverse thrust, synthesized sound effects, and an original three-minute dark outrun score.
 - Play on demand, preview the selected screensaver, or choose the game for automatic idle launch.
 - Separate icon and game accent choices: White, Teal, or your active Omarchy theme.
 - Personal campaign progress, controls, and music volume stay in your home directory across plugin updates.
@@ -54,13 +56,16 @@ Left-click the ship icon for screensaver, play, preview, icon color, and game ac
 | While piloting | Primary weapon autofires |
 | Tab / Enter | Briefing / continue |
 | H / U | Home waypoint / workshop |
-| 1 / 2 / 3 | Buy workshop upgrades |
+| 1 / 2 / 3 / 4 | Buy credit upgrades in the home workshop |
+| Q | Cycle pulse, laser cannon, flamethrower, scatter, and piercing laser |
+| 5 / 6 / 7 / 8 / 9 / 0 | Spend build points in the workshop |
+| T | Reset build points at the workshop |
 | F2 | Cycle difficulty |
 | M / P | Mute all audio / autopilot |
 | - / = | Lower / raise music volume |
 | Esc | Close or exit |
 
-After the story, free patrol rotates Pacman build recovery, Doomscroll cleanup, Hyprland mirror sync, Systemd boss hunts and Omarchy shipping contracts. Named flagships return on a timer, and their credits help fund the repeatable post-lance weapon, hull and drive overclocks. See [Gameplay guide](docs/GAMEPLAY.md) for details. Press **M** to mute sound and music; **- / =** changes persistent music volume.
+The expanded story spans eight missions across Pacman, Hyprland, Systemd, and the Omarchy agent network. Free patrol rotates repeatable contracts and brings named world bosses back on a short, scaling timer. See [Gameplay guide](docs/GAMEPLAY.md) for details. Press **M** to mute sound and music; **- / =** changes persistent music volume.
 
 ## Saves, settings, and removal
 

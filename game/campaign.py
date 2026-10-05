@@ -9,8 +9,12 @@ MISSIONS = [
     ('03 / TOUCH GRASS, SYNC MIRRORS', 'HYPRLAND: The fleet is flooding our mirrors with hot takes. Hold at each node for four seconds to restore the agent network.', 'relays', 3, 750),
     ('04 / THE COMMENT SECTION', 'SYSTEMD: Their flagship is broadcasting an endless flamewar. Defeat the Comment Section and break the blockade.', 'boss', 1, 1200),
     ('05 / MERGE TO MAIN', 'OMARCHY CONTROL: The blockade is broken. Bring the signed release home. The agents are ready; let Omarchy roll.', 'home', 1, 1000),
-    ('06 / STILL SHIPPING', 'OMARCHY CONTROL: Agentic Omarchy is online. The Hater Fleet keeps posting; we keep shipping. Defend the mirrors from tougher waves.', 'endless', 0, 0),
+    ('06 / CLEAN THE PACMAN CACHE', 'PACMAN: The Hater Fleet poisoned the package cache. Recover six signed agent builds before the next Omarchy release.', 'salvage', 6, 1100),
+    ('07 / HYPRLAND HOLDS THE LINE', 'HYPRLAND: Restore the three mirror links under fire, then carry the agent network through the fleet blockade.', 'relays', 3, 1300),
+    ('08 / KERNEL PANIC', 'SYSTEMD: The Hater Fleet has fused its flamewar into a world-class siege engine. Destroy the Dread Commenter and bring Omarchy back online.', 'boss', 1, 2200),
 ]
+FREE_PATROL_STAGE = len(MISSIONS)
+FREE_PATROL_MISSION = ('FREE PATROL / STILL SHIPPING', 'OMARCHY CONTROL: The Hater Fleet keeps posting; we keep shipping. Take contracts, build your flight style, and hunt recurring flagships.', 'endless', 0, 0)
 FREE_CONTRACTS = [
     ('PACMAN / BUILD RECOVERY', 'Recover three signed agent builds from the Hater Fleet.', 'salvage', 3, 450),
     ('DOOMSCROLL / FEED CLEANUP', 'Clear eight Doomscroll drones from the mirror routes.', 'kills', 8, 600),
@@ -29,6 +33,16 @@ UPGRADES = {
     'drive': ('HYPRDRIVE', ('Standard', 'Boost I', 'Boost II', 'Boost III', 'Boost IV', 'Boost V', 'Boost VI'), (250, 550, 950, 1600, 2600, 4100)),
     'magnet': ('PACMAN CREDIT MAGNET', ('Offline', 'Mote Magnet I', 'Mote Magnet II', 'Mote Magnet III', 'Mote Magnet IV'), (300, 700, 1450, 2800)),
 }
+BUILD_STATS = {
+    'firepower': ('PACMAN DAMAGE', 'More damage from every shot.'),
+    'volley': ('BULLET STORM', 'Add barrels to every autofire burst.'),
+    'armor': ('KERNEL ARMOR', 'Reduce damage from enemy fire and impacts.'),
+    'engine': ('HYPRDRIVE', 'More thrust and top speed.'),
+    'shielding': ('RELAY SHIELDS', 'Start with more protection; shield orbs last longer.'),
+    'scavenger': ('CACHE SCANNER', 'Pull in drops from farther away; find more loot.'),
+}
+BUILD_POINT_CAP = 18
+BUILD_STAT_MAX = 6
 
 class Campaign:
     def __init__(self, path=None):
@@ -40,6 +54,9 @@ class Campaign:
         self.progress = 0
         self.credits = 0
         self.levels = dict(weapon=0, hull=0, drive=0, magnet=0)
+        self.stats = {key: 0 for key in BUILD_STATS}
+        self.stat_points = 3
+        self.stat_points_earned = 3
         self.relays = []
         self.free_contract = 0
         self.free_relay_target = 0
@@ -47,19 +64,32 @@ class Campaign:
         if self.path and self.path.exists():
             try:
                 data = json.loads(self.path.read_text())
-                if data.get('version') != 1:
+                version=data.get('version')
+                if version not in (1,2):
                     raise ValueError('unsupported save version')
                 def integer(value, low, high):
                     if type(value) is not int or not low <= value <= high:
                         raise ValueError('invalid save value')
                     return value
-                stage = integer(data['stage'], 0, len(MISSIONS)-1)
+                stage = integer(data['stage'], 0, FREE_PATROL_STAGE if version==2 else len(MISSIONS)-1)
+                if version==1 and stage==5 and data.get('awaiting_briefing') is not True:
+                    # Version 1 used stage 5 for free patrol. Preserve pilots already there;
+                    # a pilot at the post-story briefing advances into the new chapters.
+                    stage=FREE_PATROL_STAGE
                 progress = integer(data['progress'], 0, 1000000)
                 credits = integer(data['credits'], 0, 100000000)
                 saved_levels=data.get('levels',{})
                 if not isinstance(saved_levels,dict):
                     raise ValueError('invalid upgrade levels')
                 levels = {key: integer(saved_levels.get(key,0), 0, len(UPGRADES[key][2])) for key in UPGRADES}
+                saved_stats=data.get('stats',{})
+                if not isinstance(saved_stats,dict): raise ValueError('invalid build stats')
+                stats={key:integer(saved_stats.get(key,0),0,BUILD_STAT_MAX) for key in BUILD_STATS}
+                spent=sum(stats.values())
+                if spent>BUILD_POINT_CAP: raise ValueError('build exceeds stat point cap')
+                earned=integer(data.get('stat_points_earned',BUILD_POINT_CAP if version==1 else 3),spent,BUILD_POINT_CAP)
+                points=integer(data.get('stat_points',earned-spent),0,BUILD_POINT_CAP)
+                if points+spent!=earned: raise ValueError('invalid stat point balance')
                 relays = data.get('relays', [])
                 if not isinstance(relays, list) or any(type(i) is not int or i not in range(3) for i in relays):
                     raise ValueError('invalid relay state')
@@ -70,6 +100,7 @@ class Campaign:
                 self.muted=data.get('muted',False) is True
                 self.stage, self.progress, self.credits = stage, progress, credits
                 self.levels, self.relays = levels, list(set(relays))
+                self.stats,self.stat_points,self.stat_points_earned=stats,points,earned
                 self.free_contract=integer(data.get('free_contract',0),0,len(FREE_CONTRACTS)-1)
                 self.free_relay_target=integer(data.get('free_relay_target',0),0,2)
             except (OSError, ValueError, KeyError, TypeError):
@@ -77,7 +108,15 @@ class Campaign:
 
     @property
     def mission(self):
-        return MISSIONS[self.stage]
+        return MISSIONS[self.stage] if self.stage < FREE_PATROL_STAGE else FREE_PATROL_MISSION
+
+    @property
+    def free_roam(self):
+        return self.stage >= FREE_PATROL_STAGE
+
+    @property
+    def stat_points_spent(self):
+        return sum(self.stats.values())
 
     @property
     def contract(self):
@@ -91,9 +130,10 @@ class Campaign:
     def save(self):
         if not self.path:
             return
-        data = dict(version=1, awaiting_briefing=self.awaiting_briefing, difficulty=self.difficulty, muted=self.muted, stage=self.stage, progress=self.progress,
+        data = dict(version=2, awaiting_briefing=self.awaiting_briefing, difficulty=self.difficulty, muted=self.muted, stage=self.stage, progress=self.progress,
                     credits=self.credits, levels=self.levels, relays=self.relays,
-                    free_contract=self.free_contract, free_relay_target=self.free_relay_target)
+                    free_contract=self.free_contract, free_relay_target=self.free_relay_target,
+                    stats=self.stats,stat_points=self.stat_points,stat_points_earned=self.stat_points_earned)
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix('.tmp')
@@ -106,7 +146,7 @@ class Campaign:
     def event(self, kind, amount=1):
         if self.awaiting_briefing:
             return False
-        if self.stage == len(MISSIONS)-1:
+        if self.free_roam:
             _,_,contract_kind,goal,reward=self.contract
             if kind != contract_kind:
                 return False
@@ -114,6 +154,7 @@ class Campaign:
             if self.progress < goal:
                 return False
             self.credits += reward
+            self.add_stat_points(1)
             self.progress=0
             self.free_contract=(self.free_contract+1)%len(FREE_CONTRACTS)
             return True
@@ -123,10 +164,33 @@ class Campaign:
         if self.progress < self.mission[3]:
             return False
         self.credits += self.mission[4]
+        self.add_stat_points(2)
         self.stage += 1
         self.awaiting_briefing = True
         self.progress = 0
         return True
+
+    def add_stat_points(self, amount):
+        amount=max(0,int(amount))
+        granted=min(amount,BUILD_POINT_CAP-self.stat_points_earned)
+        self.stat_points_earned+=granted
+        self.stat_points+=granted
+        return granted
+
+    def buy_stat(self, category):
+        if category not in BUILD_STATS: return 'Unknown build stat.'
+        if self.stat_points<=0: return 'No build points available.'
+        if self.stats[category]>=BUILD_STAT_MAX: return BUILD_STATS[category][0]+' is at maximum.'
+        self.stats[category]+=1
+        self.stat_points-=1
+        return 'Build tuned: '+BUILD_STATS[category][0]+' '+str(self.stats[category])
+
+    def reset_build(self):
+        refunded=self.stat_points_spent
+        if not refunded: return 'Build has no points to refund.'
+        self.stats={key:0 for key in BUILD_STATS}
+        self.stat_points+=refunded
+        return 'Build reset. '+str(refunded)+' points refunded.'
 
     def buy(self, category):
         if category not in UPGRADES:

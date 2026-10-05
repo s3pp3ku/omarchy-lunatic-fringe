@@ -11,12 +11,13 @@ import wave
 from pathlib import Path
 
 RATE = 22050
-EFFECTS = {'laser':.13, 'twin':.16, 'scatter':.20, 'plasma':.30,
+EFFECTS = {'laser':.13, 'twin':.16, 'scatter':.20, 'plasma':.30,'cannon':.24,'flame':.17,
            'hit':.18, 'collision':.25, 'rock_crash':.32, 'metal_crash':.38,
            'ricochet':.12, 'rock_break':.46, 'explosion':.62,
-           'pickup':.18, 'upgrade':.45, 'mission':.7, 'dock':.28}
+           'pickup':.18, 'buff':.30, 'health':.28, 'shield':.38,
+           'upgrade':.45, 'mission':.7, 'dock':.28}
 VARIANTS=3
-WEAPONS={'laser','twin','scatter','plasma'}
+WEAPONS={'laser','twin','scatter','plasma','cannon','flame'}
 
 def samples(name, variant=0):
     rng=random.Random(19+variant*127+sum(map(ord,name)))
@@ -29,7 +30,7 @@ def samples(name, variant=0):
         envelope=min(1,t/.003)*(1-u)**1.5
         noise=rng.uniform(-1,1)
         filtered=filtered*.83+noise*.17
-        if name in ('laser','twin','scatter','plasma'):
+        if name in WEAPONS:
             if name=='laser':
                 # Snappy electrical chirp plus an attack click.
                 freq=880*math.exp(-t*16)+145
@@ -44,6 +45,14 @@ def samples(name, variant=0):
                 freq=430*math.exp(-t*12)+65
                 phase+=math.tau*freq*pitch/RATE
                 value=.27*math.sin(phase)+filtered*.55+noise*.10*math.exp(-t*30)
+            elif name=='cannon':
+                freq=190*math.exp(-t*4)+42
+                phase+=math.tau*freq*pitch/RATE
+                value=.42*math.sin(phase)+.24*math.sin(phase*1.49)+filtered*.2
+            elif name=='flame':
+                freq=310*math.exp(-t*3)+95
+                phase+=math.tau*freq*pitch/RATE
+                value=filtered*.72+noise*.20*math.exp(-t*2)+.14*math.sin(phase)
             else:
                 freq=260*math.exp(-t*7)+58
                 phase+=math.tau*freq*pitch/RATE
@@ -62,7 +71,8 @@ def samples(name, variant=0):
             else:
                 value=.43*math.sin(phase)+filtered*.7+noise*.16
         else:
-            notes={'pickup':[880,1320], 'upgrade':[440,554,659,880],
+            notes={'pickup':[880,1320], 'buff':[659,880,1175], 'health':[392,523,784],
+                   'shield':[330,494,659], 'upgrade':[440,554,659,880],
                    'mission':[392,494,587,784,988], 'dock':[523,659,784]}[name]
             phase+=math.tau*notes[min(len(notes)-1,int(u*len(notes)))]*pitch/RATE
             value=math.sin(phase)*.65
@@ -83,60 +93,50 @@ def write_effects(directory):
     return directory
 
 def write_music(directory):
-    """Create a two-minute evolving cyberpunk arcade score in the user cache."""
+    """Create a long-form dark outrun score with analog bass and gated drums."""
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
-    path=directory/'omarchy-afterburn.wav'
+    path=directory/'omarchy-night-run.wav'
     if path.exists(): return path
-    bpm=122.;beat=60./bpm;eighth=beat/2;bars=64;frames=int(RATE*beat*4*bars)
-    # A 64-bar, four-part arc: low-key orbital intro, full pulse, bright run,
-    # then a stripped build back into the opening. Modal chords keep it alien.
-    chords=((50,57,60,64,69),(46,53,57,62,65),(43,50,53,57,62),(45,52,55,58,64),
-            (48,55,59,62,66),(39,46,50,53,57),(41,48,52,55,60),(46,53,57,62,65))
-    roots=(38,34,31,33,36,39,41,34)
-    motif=((62,65,69,72,69,65,60,65),(60,63,67,70,67,63,58,63),
-           (59,62,65,69,65,62,57,62),(57,60,64,67,64,60,55,60))
+    bpm=112.;beat=60./bpm;eighth=beat/2;bars=96;frames=int(RATE*beat*4*bars)
+    # Four movements: a restrained night drive, full drums, brighter arps,
+    # then a breakdown which resolves into the opening. No sustained lead tone.
+    chords=((57,60,64,67),(53,57,60,64),(50,53,57,60),(55,59,62,65))
+    roots=(33,29,26,31)
+    arp_steps=(0,2,3,2,1,2,3,2)
     def hz(note): return 440.*(2.**((note-69)/12.))
-    audio=array.array('h');bass_phase=0.;motif_phase=0.
+    chord_freqs=[[hz(note) for note in chord] for chord in chords]
+    root_freqs=[hz(note) for note in roots]
+    arp_freqs=[[hz(note+12) for note in chord] for chord in chords]
+    audio=array.array('h');bass_phase=0.;arp_phase=0.
     for i in range(frames):
-        t=i/RATE; beatpos=t/beat; beatno=int(beatpos); bar=beatno//4
-        section=bar//16; chord_index=(bar//2+section)%len(chords);chord=chords[chord_index]
+        t=i/RATE;beatno=int(t/beat);bar=beatno//4;section=bar//24
+        chord_index=(bar//4)%len(chords);chord=chords[chord_index]
         eighthno=int(t/eighth);step=eighthno%8;local8=t-eighthno*eighth
         localbeat=t-beatno*beat;barbeat=beatno%4
-        # Soft, wide synth chords slowly breathe beneath the arcade rhythm.
-        swell=.68+.32*math.sin(math.tau*t/11.0)
+        swell=.72+.28*math.sin(math.tau*t/13.0)
         pad=0.
-        for index,note in enumerate(chord[:4]):
-            phase=math.tau*hz(note)*t+index*.37
-            pad+=(math.sin(phase)+.24*math.sin(phase*2.003))*.009*swell
-        # Rounded, syncopated bass pulses anchor the track without a lead squeal.
-        bass_hits=(0,3,4,6) if section!=3 else (0,4,6)
-        bass_env=math.exp(-local8*9.5) if step in bass_hits else 0.
-        bass_note=roots[chord_index]-12
-        bass_freq=hz(bass_note)
-        bass_phase+=math.tau*bass_freq/RATE
-        bass=(math.sin(bass_phase)+.22*math.sin(bass_phase*2.01))*bass_env*(.15 if section else .10)
-        # Short, percussive digital notes appear in the middle sections only.
-        motif_hits=(0,2,3,6) if section==2 else (0,4) if section==1 else ()
-        motif_note=motif[(bar//4)%len(motif)][step]
-        motif_freq=hz(motif_note)
-        motif_phase+=math.tau*motif_freq/RATE
-        motif_env=math.exp(-local8*17.) if step in motif_hits else 0.
-        pluck=(math.sin(motif_phase)+.28*math.sin(motif_phase*2.01))*motif_env*(.047 if section==2 else .026)
-        barbeat=beatno%4
+        for index,freq in enumerate(chord_freqs[chord_index]):
+            phase=math.tau*freq*t+index*.37
+            pad+=(math.sin(phase)+.18*math.sin(phase*2.003))*.006*swell
+        bass_hits=(0,3,4,6) if section!=3 else (0,4)
+        bass_env=math.exp(-local8*(7.5 if section else 10.)) if step in bass_hits else 0.
+        bass_phase+=math.tau*root_freqs[chord_index]/RATE
+        bass=(math.sin(bass_phase)+.28*math.sin(bass_phase*2.01)+.12*math.sin(bass_phase*3.02))*bass_env*(.19 if section else .13)
+        arp_phase+=math.tau*arp_freqs[chord_index][arp_steps[step]]/RATE
+        arp_hits=section in (1,2) or (section==3 and step in (0,4))
+        arp_env=math.exp(-local8*(16 if section==2 else 21)) if arp_hits else 0.
+        arp=(math.sin(arp_phase)+.3*math.sin(arp_phase*2.005))*arp_env*(.046 if section==2 else .032)
         kick=0.
         if barbeat in (0,2) and section!=3 or barbeat==0:
-            kick=math.sin(math.tau*(72-39*localbeat)*localbeat)*math.exp(-localbeat*25)*(.13 if section else .075)
-        snare_gain=(.034 if section in (1,2) else .022 if section==3 else .012)
-        snare=(snare_gain*math.sin(math.tau*185*localbeat)+.012*math.sin(math.tau*1550*localbeat))*math.exp(-localbeat*21) if barbeat in (1,3) and section else 0.
-        hat_gain=.011 if section in (1,2) else .006 if section==3 else .003
-        hat_local=t-eighthno*eighth
-        hat=hat_gain*math.sin(math.tau*(1800+120*(step%2))*hat_local)*math.exp(-hat_local*48)
+            kick=math.sin(math.tau*(82-48*localbeat)*localbeat)*math.exp(-localbeat*22)*(.22 if section else .12)
+        snare_gain=(.075 if section in (1,2) else .045 if section==3 else .018)
+        snare=(snare_gain*math.sin(math.tau*188*localbeat)+.022*math.sin(math.tau*1550*localbeat))*math.exp(-localbeat*12) if barbeat in (1,3) and section else 0.
+        hat_gain=.018 if section in (1,2) else .01 if section==3 else .005
+        hat=hat_gain*math.sin(math.tau*(2100+180*(step%2))*local8)*math.exp(-local8*35)
         if section==0 and step not in (0,4): hat=0.
         if section==3 and step in (1,3,5,7): hat=0.
-        value=pad+pluck+bass+kick+snare+hat
-        # Gentle stereo width comes from the chord bed, avoiding hard panning.
-        width=sum(math.sin(math.tau*hz(note)*t+index*.37+.12) for index,note in enumerate(chord[:3]))*.003
-        # Give the score enough body to remain audible under weapon and engine cues.
+        value=pad+arp+bass+kick+snare+hat
+        width=sum(math.sin(math.tau*freq*t+index*.37+.12) for index,freq in enumerate(chord_freqs[chord_index][:3]))*.003
         left=max(-.8,min(.8,(value+width)*2.0));right=max(-.8,min(.8,(value-width)*2.0))
         audio.append(int(left*32767));audio.append(int(right*32767))
     if sys.byteorder!='little': audio.byteswap()
@@ -159,7 +159,7 @@ class SoundBank:
             from gi.repository import Gst
             Gst.init(None)
             self.Gst=Gst
-            self.directory=write_effects(Path(directory)/'v3')
+            self.directory=write_effects(Path(directory)/'v4')
             for _ in range(8):
                 player=Gst.ElementFactory.make('playbin',None)
                 sink=Gst.ElementFactory.make('fakesink',None)
@@ -168,7 +168,7 @@ class SoundBank:
                 player.set_property('volume',.45)
                 self.voices.append([player,0.])
             try:
-                music_path=write_music(Path(directory).parent/'music'/'v4')
+                music_path=write_music(Path(directory).parent/'music'/'v5')
                 self.music=Gst.ElementFactory.make('playbin',None)
                 sink=Gst.ElementFactory.make('fakesink',None)
                 if self.music is None or sink is None: raise RuntimeError('Missing music playback plugin')

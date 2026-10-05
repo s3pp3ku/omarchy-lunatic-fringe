@@ -1,3 +1,11 @@
+# 0.4.0
+
+- Expand the Omarchy campaign from five missions to eight, including new Pacman cache, Hyprland mirror, and Hater Fleet world-boss chapters.
+- Add a lifetime-capped 18-point build system across firepower, volley, armor, engine, shields, and scavenging; older saves receive a full point pool.
+- Add pulse, laser cannon, flamethrower, scatter, and piercing laser modes plus temporary fire-rate, spread, flame, and pierce drops.
+- Add health and shield orbs, scavenger-increased loot, and fast, scaling world-boss returns during free patrol.
+- Replace the score with a longer dark outrun synthwave track and add distinct weapon and pickup effects.
+
 # 0.3.8
 
 - Add four purchasable credit-magnet tiers that pull nearby salvage motes toward the ship.

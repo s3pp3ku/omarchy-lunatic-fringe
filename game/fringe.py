@@ -10,7 +10,7 @@ import json
 import signal
 import textwrap
 from appearance import palette
-from campaign import Campaign, UPGRADES, DIFFICULTIES, MISSIONS
+from campaign import Campaign, UPGRADES, BUILD_STATS, DIFFICULTIES, MISSIONS, FREE_PATROL_STAGE
 
 TAU = math.tau
 CYAN = (0.18, 1.0, 0.61)
@@ -168,6 +168,10 @@ class Simulation:
         self.notice_until = 0.
         self.save_clock = 0.
         self.salvage = []
+        self.pickups = []
+        self.weapon_mode = 'pulse'
+        self.weapon_buffs = {'rapid':0.,'spread':0.,'flame':0.,'pierce':0.}
+        self.shield_charge = 0.
         self.beacons = [(-1250., -650.), (1350., -450.), (450., 1500.)]
         self.scan = 0.
         self.scan_target = None
@@ -175,7 +179,7 @@ class Simulation:
         self.boss_spawned = False
         self.free_boss_due = None
         self.free_boss_count = 0
-        self.free_boss_names = ('AUR GATEKEEPER', 'DOOMSCROLL LEVIATHAN', 'BUILD PIPELINE BREAKER', 'COMMENT SECTION MK II')
+        self.free_boss_names = ('AUR GATEKEEPER', 'DOOMSCROLL LEVIATHAN', 'BUILD PIPELINE BREAKER', 'COMMENT SECTION MK II', 'THE KERNEL PANIC')
         self.explosions = []
         self.rng = random.Random(seed)
         r = self.rng
@@ -241,7 +245,17 @@ class Simulation:
         p=self.player
         if self.respawn_shield>0 or self.hit_grace>0 or math.hypot(p['x'],p['y'])<145:
             return False
-        p['hp']-=amount*self.settings['damage']
+        amount*=self.settings['damage']
+        amount*=1-.055*self.campaign.stats['armor']
+        if self.shield_charge>0:
+            absorbed=min(self.shield_charge,amount)
+            self.shield_charge-=absorbed
+            amount-=absorbed
+        if amount<=0:
+            self.hit_grace=max(self.hit_grace,.08)
+            self.sound_event('shield')
+            return True
+        p['hp']-=amount
         self.hit_grace=self.settings['grace']
         self.hit_flash=.24
         self.sound_event('hit')
@@ -274,13 +288,14 @@ class Simulation:
     def spawn(self, boss=False):
         r, p = self.rng, self.player
         a, d = r.random()*TAU, r.uniform(700,1300)
-        tier = min(8, self.campaign.stage + (self.kills//20 if self.campaign.stage==5 else 0))
+        endgame=self.campaign.free_roam
+        tier = min(12, self.campaign.stage + (self.kills//14 if endgame else 0))
         kind = 2 if boss else r.randrange(min(3, 1+self.campaign.stage))
-        hp = ((135+min(8,self.kills//20)*18) if boss and self.campaign.stage==5 else 100 if boss else 3+tier*2+(3 if kind==2 else 0))*self.settings['hull']
+        hp = ((160+min(12,self.kills//14)*24) if boss and endgame else 135 if boss else 3+tier*2+(3 if kind==2 else 0))*self.settings['hull']
         self.enemies.append(dict(x=wrap(p['x']+math.cos(a)*d), y=wrap(p['y']+math.sin(a)*d),
                                  a=a, hp=hp, maxhp=hp, shot=r.uniform(.3,3), kind=kind,
-                                 boss_name=(self.free_boss_names[self.free_boss_count%len(self.free_boss_names)] if boss and self.campaign.stage==5 else 'COMMENT SECTION'),
-                                 boss=boss, tier=tier, radius=65 if boss else 25))
+                                 boss_name=(self.free_boss_names[self.free_boss_count%len(self.free_boss_names)] if boss and endgame else 'COMMENT SECTION'),
+                                 boss=boss, tier=tier, radius=(78 if endgame else 65) if boss else 25))
 
     def notify(self, message):
         self.notice, self.notice_until = message, self.t+6
@@ -296,22 +311,26 @@ class Simulation:
             self.enemies.clear()
             self.bullets.clear()
             self.salvage.clear()
+            self.pickups.clear()
+            self.weapon_buffs={key:0. for key in self.weapon_buffs}
+            self.shield_charge=0.
             self.trail.clear()
             self.kills = 0
             self.score = 0
             self.scan = 0.
             self.boss_spawned = False
-            self.free_boss_due=self.t+self.rng.uniform(80,115) if self.campaign.stage==5 else None
+            self.free_boss_due=self.t+self.rng.uniform(35,55) if self.campaign.free_roam else None
             self.returning = False
             self.player.update(x=0., y=-90., vx=0., vy=0., hp=self.campaign.max_hull, fuel=100.)
             self.camera = [0., -90.]
             self.respawn_shield = self.settings['shield']
+            self.shield_charge=3.+self.campaign.stats['shielding']*2
             self.intro_fade = .5
             self.was_docked = True
             if self.sound: self.sound.muted=self.campaign.muted
             for _ in range(self.settings['population']+min(3,self.campaign.stage)):
                 self.spawn()
-            self.briefing=self.campaign.awaiting_briefing or self.campaign.stage==5
+            self.briefing=self.campaign.awaiting_briefing or self.campaign.free_roam
             if self.campaign.error: self.notify(self.campaign.error)
         self.auto = False
         if self.sound and not self.sound.muted:
@@ -324,7 +343,7 @@ class Simulation:
             self.notify(f'Music volume: {round(value*100)}%')
 
     def objective_event(self, kind):
-        free=self.campaign.stage==5
+        free=self.campaign.free_roam
         completed=self.campaign.contract[0] if free else self.campaign.mission[0]
         reward=self.campaign.contract[4] if free else self.campaign.mission[4]
         if self.campaign.event(kind):
@@ -351,6 +370,9 @@ class Simulation:
         self.keys.clear()
         self.bullets.clear()
         self.respawn_shield=max(self.respawn_shield,3.)
+        if self.campaign.free_roam and self.free_boss_due is None:
+            self.boss_spawned=False
+            self.free_boss_due=self.t+self.rng.uniform(30,45)
         self.persist()
 
     def replay_story(self):
@@ -362,11 +384,12 @@ class Simulation:
         self.replay_confirm=False
         self.briefing=False
         self.shop=False
-        self.enemies.clear();self.bullets.clear();self.salvage.clear();self.trail.clear()
+        self.enemies.clear();self.bullets.clear();self.salvage.clear();self.pickups.clear();self.trail.clear()
         self.kills=0;self.scan=0.;self.scan_target=None;self.boss_spawned=False
         self.navigate_home=False;self.returning=False;self.keys.clear()
         self.player.update(x=0.,y=-90.,vx=0.,vy=0.,hp=self.campaign.max_hull,fuel=100.)
         self.camera=[0.,-90.];self.respawn_shield=self.settings['shield']
+        self.shield_charge=3.+self.campaign.stats['shielding']*2
         for _ in range(self.settings['population']): self.spawn()
         self.notify('Mission 1 / Let the Agents Cook')
         self.persist()
@@ -374,7 +397,7 @@ class Simulation:
     def waypoint(self):
         if self.navigate_home:
             return 0.,0.,'HOME / WORKSHOP'
-        if self.campaign.stage==5 and self.campaign.contract[2]=='relays':
+        if self.campaign.free_roam and self.campaign.contract[2]=='relays':
             i=self.campaign.free_relay_target;xy=self.beacons[i]
             return xy[0],xy[1],f'MIRROR {i+1}'
         kind = self.campaign.mission[2]
@@ -389,7 +412,7 @@ class Simulation:
         if kind == 'salvage' and self.enemies:
             enemy=min(self.enemies,key=lambda e:math.hypot(delta(e['x'],self.player['x']),delta(e['y'],self.player['y'])))
             return enemy['x'],enemy['y'],'PACKAGE CARRIER'
-        if self.campaign.stage==5 and any(e['boss'] for e in self.enemies):
+        if self.campaign.free_roam and any(e['boss'] for e in self.enemies):
             boss=next(e for e in self.enemies if e['boss'])
             return boss['x'],boss['y'],boss['boss_name']
         if kind == 'boss':
@@ -420,6 +443,25 @@ class Simulation:
             self.player['hp'] += self.campaign.max_hull-old_max
             self.persist()
 
+    def buy_build_stat(self,key):
+        if not self.shop: return
+        category={'5':'firepower','6':'volley','7':'armor','8':'engine','9':'shielding','0':'scavenger'}.get(key)
+        if category:
+            result=self.campaign.buy_stat(category)
+            self.notify(result)
+            if result.startswith('Build tuned:'): self.sound_event('upgrade')
+            self.persist()
+
+    def reset_build(self):
+        self.notify(self.campaign.reset_build())
+        self.persist()
+
+    def cycle_weapon(self):
+        self.take_control()
+        weapons=('pulse','cannon','flame','scatter','laser')
+        self.weapon_mode=weapons[(weapons.index(self.weapon_mode)+1)%len(weapons)]
+        self.notify('Weapon // '+self.weapon_mode.upper())
+
     def burst(self, x, y, rgb, n=25):
         if n >= 25:
             self.explosions.append([x, y, .7, rgb == CYAN])
@@ -427,6 +469,50 @@ class Simulation:
             a = self.rng.random()*TAU
             s = self.rng.uniform(30,240)
             self.particles.append([x,y,math.cos(a)*s,math.sin(a)*s,self.rng.uniform(.3,1.2),rgb])
+
+    def drop_loot(self,x,y,boss=False):
+        scavenger=self.campaign.stats['scavenger']
+        types=('rapid','spread','flame','pierce','health','shield')
+        if boss:
+            drops=['health','shield',self.rng.choice(types[:4])]
+            if self.rng.random()<.55: drops.append(self.rng.choice(types[:4]))
+        elif self.rng.random()<min(.82,.34+scavenger*.055):
+            drops=[self.rng.choices(types,weights=(2,2,1.3,1.4,1.1,1.1),k=1)[0]]
+            if scavenger>=4 and self.rng.random()<.28: drops.append(self.rng.choice(types))
+        else:
+            drops=[]
+        for kind in drops:
+            angle=self.rng.random()*TAU;distance=self.rng.uniform(12,50)
+            self.pickups.append({'x':wrap(x+math.cos(angle)*distance),'y':wrap(y+math.sin(angle)*distance),
+                                 'kind':kind,'life':24.,'phase':self.rng.random()*TAU})
+
+    def update_pickups(self,dt):
+        p=self.player;scavenger=self.campaign.stats['scavenger']
+        attraction=100+scavenger*75
+        labels={'rapid':'RAPID FIRE','spread':'WIDE VOLLEY','flame':'FLAME ROUND','pierce':'PIERCING LASER',
+                'health':'HULL RESTORED','shield':'SHIELD CHARGED'}
+        for orb in self.pickups[:]:
+            orb['life']-=dt;orb['phase']+=dt*3
+            dx,dy=delta(p['x'],orb['x']),delta(p['y'],orb['y'])
+            distance=math.hypot(dx,dy)
+            if distance<attraction and distance>1:
+                step=min(distance-48,(320+max(0,attraction-distance)*1.8)*dt)
+                orb['x']=wrap(orb['x']+dx/distance*step);orb['y']=wrap(orb['y']+dy/distance*step)
+                distance=math.hypot(delta(p['x'],orb['x']),delta(p['y'],orb['y']))
+            if distance<52:
+                kind=orb['kind'];self.pickups.remove(orb)
+                self.sound_event('health' if kind=='health' else 'shield' if kind=='shield' else 'buff')
+                if kind=='health':
+                    self.player['hp']=min(self.campaign.max_hull,self.player['hp']+self.campaign.max_hull*.42)
+                    if self.player['hp']>=self.campaign.max_hull*.98: self.shield_charge=min(8+self.campaign.stats['shielding']*5,self.shield_charge+5)
+                elif kind=='shield':
+                    self.shield_charge=min(8+self.campaign.stats['shielding']*5,self.shield_charge+10+self.campaign.stats['shielding']*2)
+                else:
+                    self.weapon_buffs[kind]=min(40.,self.weapon_buffs[kind]+14+self.campaign.stats['scavenger']*1.5)
+                self.notify('PICKUP // '+labels[kind])
+            elif orb['life']<=0:
+                self.pickups.remove(orb)
+        self.pickups=self.pickups[-48:]
 
     def press_control(self, key):
         key = key.lower() if len(key) == 1 else key
@@ -438,21 +524,42 @@ class Simulation:
         return True
 
     def fire(self, ship, enemy=False):
-        tier = 0 if enemy else self.campaign.levels['weapon']
-        if not enemy: self.sound_event(('laser','twin','scatter','plasma')[min(tier,3)])
-        angles = [-.16,0,.16] if tier>=2 else ([0,0] if tier==1 else [0])
-        if enemy and (ship['boss'] or ship['kind']==2):
-            angles = [-.28,-.14,0,.14,.28] if ship['boss'] else [-.13,0,.13]
+        tier=0 if enemy else self.campaign.levels['weapon']
+        if enemy:
+            mode='enemy'
+            angles=[-.28,-.14,0,.14,.28] if ship.get('boss') else ([-.13,0,.13] if ship.get('kind')==2 else [0])
+            speed=510*self.settings['speed'];damage=12 if ship.get('boss') else 6+ship.get('tier',0)
+            life=1.8;pierce=0
+        else:
+            mode='flame' if self.weapon_buffs['flame']>0 else self.weapon_mode
+            volley=self.campaign.stats['volley']+int(self.weapon_buffs['spread']>0)*2
+            power=self.campaign.stats['firepower']*.55
+            if mode=='pulse':
+                count=min(9,(1 if tier==0 else 2 if tier==1 else 3)+volley)
+                angles=[(i-(count-1)/2)*.095 for i in range(count)]
+                speed=1050 if tier>=3 else 880;damage=(3+max(0,tier-3) if tier>=3 else 1)+power;life=1.8;pierce=0
+            elif mode=='cannon':
+                angles=[0.];speed=680;damage=5+power;life=2.2;pierce=2
+            elif mode=='flame':
+                count=min(9,5+volley)
+                angles=[(i-(count-1)/2)*.17 for i in range(count)]
+                speed=440;damage=1.2+power*.35;life=.55;pierce=5
+            elif mode=='scatter':
+                count=min(11,7+volley)
+                angles=[(i-(count-1)/2)*.115 for i in range(count)]
+                speed=760;damage=1.4+power*.4;life=1.35;pierce=0
+            else:  # Fast piercing laser beam.
+                angles=[0.];speed=1450;damage=3.2+power;life=1.7;pierce=3
+            if self.weapon_buffs['pierce']>0: pierce+=2
+            self.sound_event({'pulse':'laser','cannon':'cannon','flame':'flame','scatter':'scatter','laser':'plasma'}[mode])
         for index,offset in enumerate(angles):
-            a = ship['a']+offset
-            side = (-8 if index==0 else 8) if tier==1 else 0
-            speed = 510*self.settings['speed'] if enemy else (1050 if tier==3 else 800)
-            damage = (12 if ship.get('boss') else 6+ship.get('tier',0)) if enemy else (3+max(0,tier-3) if tier>=3 else 1)
+            a=ship['a']+offset
+            side=(-8 if index%2==0 else 8) if mode=='pulse' and tier==1 else 0
             self.bullets.append([ship['x']+math.cos(a)*28-math.sin(a)*side,
                                  ship['y']+math.sin(a)*28+math.cos(a)*side,
                                  math.cos(a)*speed+ship.get('vx',0)*.35,
                                  math.sin(a)*speed+ship.get('vy',0)*.35,
-                                 1.8,enemy,damage])
+                                 life,enemy,damage,mode,pierce,set()])
 
     def step(self, dt):
         self.palette_clock+=dt
@@ -466,6 +573,8 @@ class Simulation:
         self.hit_grace=max(0.,self.hit_grace-dt)
         self.hit_flash=max(0.,self.hit_flash-dt)
         self.contact_grace=max(0.,self.contact_grace-dt)
+        for kind in self.weapon_buffs:
+            self.weapon_buffs[kind]=max(0.,self.weapon_buffs[kind]-dt)
         self.t += dt
         self.respawn_shield = max(0., self.respawn_shield-dt)
         self.save_clock += dt
@@ -476,6 +585,8 @@ class Simulation:
             effect[2] -= dt
         self.explosions = [effect for effect in self.explosions if effect[2] > 0]
         p, keys = self.player, self.keys
+        shield_max=8.+self.campaign.stats['shielding']*5
+        self.shield_charge=min(shield_max,self.shield_charge+dt*(.35+self.campaign.stats['shielding']*.16))
         p['shot'] -= dt
         target = min(self.enemies, key=lambda e: delta(e['x'],p['x'])**2+delta(e['y'],p['y'])**2, default={'x':0.,'y':0.})
         dock = math.hypot(p['x'],p['y']) < 145
@@ -506,7 +617,7 @@ class Simulation:
             thrust = int('Up' in keys or 'w' in keys)-int('Down' in keys or 's' in keys)
             shooting = True  # Primary weapon autofires during manual flight.
         if thrust and p['fuel'] > 0:
-            acceleration = (300+55*self.campaign.levels['drive'])*thrust
+            acceleration = (300+55*self.campaign.levels['drive']+48*self.campaign.stats['engine'])*thrust
             p['vx'] += math.cos(p['a'])*acceleration*dt
             p['vy'] += math.sin(p['a'])*acceleration*dt
             p['fuel'] = max(0,p['fuel']-dt*1.4)
@@ -515,12 +626,18 @@ class Simulation:
         drag = math.exp(-dt*(3 if (self.auto and ((dock and returning) or (navigating and distance<100))) else .65))
         p['vx'] *= drag
         p['vy'] *= drag
+        max_speed=720*(1+.065*self.campaign.stats['engine'])
+        velocity=math.hypot(p['vx'],p['vy'])
+        if velocity>max_speed:
+            p['vx']*=max_speed/velocity;p['vy']*=max_speed/velocity
         p['x'] = wrap(p['x']+p['vx']*dt)
         p['y'] = wrap(p['y']+p['vy']*dt)
         if shooting and p['shot']<=0:
             self.fire(p)
             weapon_level=self.campaign.levels['weapon']
-            p['shot']=max(.075,(.20,.19,.17,.13)[min(weapon_level,3)]-.012*max(0,weapon_level-3))
+            cooldown={'pulse':max(.075,(.20,.19,.17,.13)[min(weapon_level,3)]-.012*max(0,weapon_level-3)),
+                      'cannon':.34,'flame':.27,'scatter':.31,'laser':.19}[('flame' if self.weapon_buffs['flame']>0 else self.weapon_mode)]
+            p['shot']=cooldown*(.56 if self.weapon_buffs['rapid']>0 else 1.)
         for e in self.enemies:
             dx,dy=delta(p['x'],e['x']),delta(p['y'],e['y'])
             d=math.hypot(dx,dy)
@@ -543,17 +660,23 @@ class Simulation:
             bullet[4]-=dt
             if bullet[4]<=0: continue
             hits=[]
+            mode=bullet[7] if len(bullet)>7 else 'pulse'
+            seen=bullet[9] if len(bullet)>9 else set()
             for index,(x,y,r,_) in enumerate(self.rocks):
-                if index in self.destroyed_rocks: continue
-                hit=segment_hit(x0,y0,bullet[0],bullet[1],x,y,r*.82)
+                if index in self.destroyed_rocks or ('rock',index) in seen: continue
+                hit=segment_hit(x0,y0,bullet[0],bullet[1],x,y,r*.82+(9 if mode=='flame' else 5 if mode=='cannon' else 0))
                 if hit is not None: hits.append((hit,'rock',index))
             for enemy in ([p] if bullet[5] else self.enemies):
                 if enemy['hp']<=0: continue
-                hit=segment_hit(x0,y0,bullet[0],bullet[1],enemy['x'],enemy['y'],enemy.get('radius',21))
+                if ('ship',id(enemy)) in seen: continue
+                hit=segment_hit(x0,y0,bullet[0],bullet[1],enemy['x'],enemy['y'],enemy.get('radius',21)+(14 if mode=='flame' else 6 if mode=='cannon' else 0))
                 if hit is not None: hits.append((hit,'ship',enemy))
             if not hits: continue
             _,kind,target=min(hits,key=lambda item:item[0])
-            bullet[4]=0
+            if len(bullet)>9:
+                seen.add(('rock',target) if kind=='rock' else ('ship',id(target)))
+            if len(bullet)<=8 or bullet[8]<=0: bullet[4]=0
+            else: bullet[8]-=1
             if kind=='rock':
                 rock=self.rocks[target]
                 self.rock_hp[target]=self.rock_hp.get(target,math.ceil(rock[2]/13))-bullet[6]
@@ -575,9 +698,11 @@ class Simulation:
                 self.enemies.remove(e)
                 self.score+=250
                 self.kills+=1
-                free_boss=e['boss'] and self.campaign.stage==5
+                free_boss=e['boss'] and self.campaign.free_roam
                 self.campaign.credits += (1200 if free_boss else 500) if e['boss'] else 60+15*e['tier']
                 self.salvage.append([e['x'],e['y'],self.t])
+                self.drop_loot(e['x'],e['y'],e['boss'])
+                if e['boss']: self.campaign.add_stat_points(1)
                 contract_before=self.campaign.free_contract
                 self.objective_event('boss' if e['boss'] else 'kills')
                 if not e['boss']:
@@ -585,14 +710,14 @@ class Simulation:
                 elif free_boss:
                     self.boss_spawned=False
                     self.free_boss_count+=1
-                    self.free_boss_due=self.t+self.rng.uniform(105,155)
+                    self.free_boss_due=self.t+self.rng.uniform(max(24,62-min(32,self.kills*.5)),max(30,82-min(32,self.kills*.5)))
                     if self.campaign.free_contract==contract_before:
                         self.notify('Flagship down // +1,200 CR // next incursion incoming')
         if self.campaign.awaiting_briefing: return
         if self.campaign.mission[2]=='boss' and not self.boss_spawned:
             self.spawn(boss=True)
             self.boss_spawned = True
-        if self.campaign.stage==5 and not self.boss_spawned and self.free_boss_due is not None and self.t>=self.free_boss_due:
+        if self.campaign.free_roam and not self.boss_spawned and self.free_boss_due is not None and self.t>=self.free_boss_due:
             self.spawn(boss=True)
             self.boss_spawned=True
             self.notify('BOSS INBOUND // '+self.free_boss_names[self.free_boss_count%len(self.free_boss_names)])
@@ -600,7 +725,7 @@ class Simulation:
             if self.campaign.awaiting_briefing or core not in self.salvage: break
             distance=math.hypot(delta(p['x'],core[0]),delta(p['y'],core[1]))
             magnet=self.campaign.levels['magnet']
-            radius=(0,150,245,365,510)[magnet]
+            radius=(0,150,245,365,510)[magnet]+self.campaign.stats['scavenger']*45
             if magnet and 65<distance<radius:
                 speed=min(1000,210+magnet*135+(radius-distance)*1.4)
                 step=min(distance-55,speed*dt)
@@ -613,8 +738,9 @@ class Simulation:
                 self.campaign.credits += 30
                 self.objective_event('salvage')
         self.salvage = self.salvage[-40:]
+        self.update_pickups(dt)
         if self.campaign.awaiting_briefing: return
-        free_relay=self.campaign.stage==5 and self.campaign.contract[2]=='relays'
+        free_relay=self.campaign.free_roam and self.campaign.contract[2]=='relays'
         if self.campaign.mission[2]=='relays' or free_relay:
             valid=(self.campaign.free_relay_target,) if free_relay else tuple(i for i in range(len(self.beacons)) if i not in self.campaign.relays)
             nearby = next((i for i in valid if math.hypot(delta(self.beacons[i][0],p['x']),delta(self.beacons[i][1],p['y']))<120),None)
@@ -645,6 +771,7 @@ class Simulation:
             self.camera = [p['x'], p['y']]
             self.trail.clear()
             self.respawn_shield = self.settings['shield']
+            self.shield_charge=3.+self.campaign.stats['shielding']*2
             self.sound_event('explosion')
             self.campaign.credits = max(0,self.campaign.credits-100)
             self.notify('Emergency recall // 100 credits recovery fee. Upgrades retained.')
@@ -726,17 +853,25 @@ class Simulation:
         for core in self.salvage:
             x,y=screen(core[0],core[1])
             magnet=self.campaign.levels['magnet']
-            radius=(0,150,245,365,510)[magnet]
+            radius=(0,150,245,365,510)[magnet]+self.campaign.stats['scavenger']*45
             distance=math.hypot(delta(self.player['x'],core[0]),delta(self.player['y'],core[1]))
             if magnet and distance<radius*.7:
                 sx,sy=screen(self.player['x'],self.player['y'])
                 line(c,[(x,y),(sx,sy)],GOLD,1,.18*(1-distance/(radius*.7)))
             circle(c,x,y,12+math.sin(self.t*4)*2,GOLD,.8,2)
             line(c,[(x-5,y),(x,y-5),(x+5,y),(x,y+5)],GOLD,2,1,True)
+        pickup_colors={'rapid':GOLD,'spread':PURPLE,'flame':PINK,'pierce':CYAN,'health':(1.,.28,.34),'shield':(.35,.62,1.)}
+        pickup_marks={'rapid':'R','spread':'S','flame':'F','pierce':'P','health':'+','shield':'+'}
+        for orb in self.pickups:
+            x,y=screen(orb['x'],orb['y']);rgb=pickup_colors[orb['kind']]
+            pulse=math.sin(orb['phase'])*2
+            circle(c,x,y,11+pulse,rgb,.24,7)
+            circle(c,x,y,8+pulse,rgb,.9,1.5)
+            text(c,x-3.5,y+4,pickup_marks[orb['kind']],10,rgb)
         if self.campaign.stage>=2:
             for i,(wx,wy) in enumerate(self.beacons):
                 x,y=screen(wx,wy)
-                active_relay=self.campaign.stage==5 and self.campaign.contract[2]=='relays' and i==self.campaign.free_relay_target
+                active_relay=self.campaign.free_roam and self.campaign.contract[2]=='relays' and i==self.campaign.free_relay_target
                 rgb=CYAN if i in self.campaign.relays or active_relay else GOLD
                 circle(c,x,y,65,rgb,.4,2)
                 self.atlas.draw(c,'relay',x,y,85,-self.t*.2)
@@ -745,7 +880,7 @@ class Simulation:
                     text(c,x-42,y+104,f'LINK {self.scan/4:.0%}',12,GOLD)
         wx,wy,label=self.waypoint()
         dx,dy=delta(wx,p['x']),delta(wy,p['y'])
-        boss_active=self.campaign.stage==5 and any(e['boss'] for e in self.enemies)
+        boss_active=self.campaign.free_roam and any(e['boss'] for e in self.enemies)
         if math.hypot(dx,dy)>170 and (self.navigate_home or self.campaign.mission[2] not in ('kills','endless') or boss_active):
             angle=math.atan2(dy,dx)
             x=w/2+math.cos(angle)*min(w*.36,350)
@@ -756,11 +891,13 @@ class Simulation:
             text(c,x-65,y+22,f'{label} {math.hypot(dx,dy):.0f}m',10,GOLD,.8)
         for b in self.bullets:
             x,y=screen(b[0],b[1])
-            rgb=PINK if b[5] else CYAN
-            pts=[(x,y),(x-b[2]*.026,y-b[3]*.026)]
-            line(c,pts,rgb,7,.10)
-            line(c,pts,rgb,2,.65)
-            self.atlas.draw(c, 'shot-red' if b[5] else 'shot-green', x, y, 24, math.atan2(b[3],b[2]))
+            mode=b[7] if len(b)>7 else 'pulse'
+            rgb=PINK if b[5] else {'pulse':CYAN,'cannon':GOLD,'flame':PINK,'scatter':PURPLE,'laser':(1.,.9,.72)}.get(mode,CYAN)
+            width=8 if mode=='flame' else 6 if mode=='cannon' else 4 if mode=='laser' else 3
+            pts=[(x,y),(x-b[2]*(.042 if mode=='flame' else .032),y-b[3]*(.042 if mode=='flame' else .032))]
+            line(c,pts,rgb,width*2,.16)
+            line(c,pts,rgb,width*.45,.95)
+            circle(c,x,y,width*.6,rgb,.95)
         for q in self.particles:
             x,y=screen(q[0],q[1])
             line(c,[(x,y),(x-q[2]*.025,y-q[3]*.025)],q[5],2,min(1,q[4]*2))
@@ -784,7 +921,7 @@ class Simulation:
         self.draw_campaign(c,w,h)
 
     def objective_text(self):
-        if self.campaign.stage==5:
+        if self.campaign.free_roam:
             title,_,kind,goal,_=self.campaign.contract
             if kind=='relays':
                 return f'{title}  //  MIRROR {self.campaign.free_relay_target+1}'
@@ -804,15 +941,18 @@ class Simulation:
         c.save()
         c.translate(math.sin(self.t*.03)*4,math.cos(self.t*.04)*3)
         text(c,28,31,'OMARCHY: LUNATIC FRINGE',12,CYAN,.6)
-        text(c,28,54,(f'{self.campaign.stage+1}/5  ' if self.campaign.stage<5 else '')+self.objective_text(),12,(.77,.85,.88),.9)
+        text(c,28,54,(f'{self.campaign.stage+1}/{len(MISSIONS)}  ' if not self.campaign.free_roam else 'FREE  ')+self.objective_text(),12,(.77,.85,.88),.9)
         text(c,w-170,31,f'{self.campaign.credits:,} CR',12,GOLD,.8)
         for i,(label,fraction,rgb) in enumerate([
+                ('SHLD',self.shield_charge/max(1,8+self.campaign.stats['shielding']*5),(.35,.62,1.)),
                 ('HULL',max(0,p['hp'])/self.campaign.max_hull,PINK if p['hp']<self.campaign.max_hull*.3 else CYAN),
                 ('FUEL',p['fuel']/100,PURPLE)]):
-            y=h-65+i*20
+            y=h-82+i*18
             text(c,28,y+4,label,9,rgb,.7)
             line(c,[(70,y),(215,y)],rgb,4,.12)
             line(c,[(70,y),(70+145*fraction,y)],rgb,4,.85)
+        active=[f'{name.upper()} {round(value)}s' for name,value in self.weapon_buffs.items() if value>0]
+        text(c,28,h-100,'Q  '+self.weapon_mode.upper()+('  //  '+'  '.join(active[:2]) if active else ''),9,GOLD if active else CYAN,.72)
         text(c,28,h-17,'TAB  Briefing',9,(.65,.75,.8),.5)
         if math.hypot(p['x'],p['y'])<145 and self.pilot_started:
             text(c,245,h-45,'U  Workshop / Repairing',10,CYAN,.65)
@@ -852,20 +992,20 @@ class Simulation:
     def draw_briefing(self,c,w,h):
         color(c,(.003,.008,.018),.95);c.paint()
         pw=min(700,w-60);x=(w-pw)/2;y=max(25,(h-530)/2)
-        free_patrol=self.campaign.stage==5 and not self.campaign.awaiting_briefing
-        heading='FREE PATROL / ACTIVE CONTRACT' if free_patrol else 'CAMPAIGN COMPLETE' if self.campaign.stage==5 else 'MISSION BRIEFING'
-        if self.campaign.awaiting_briefing and self.campaign.stage<5:
+        free_patrol=self.campaign.free_roam and not self.campaign.awaiting_briefing
+        heading='FREE PATROL / ACTIVE CONTRACT' if free_patrol else 'CAMPAIGN COMPLETE' if self.campaign.free_roam else 'MISSION BRIEFING'
+        if self.campaign.awaiting_briefing and not self.campaign.free_roam:
             heading=f'MISSION {self.campaign.stage} COMPLETE'
         if self.replay_confirm: heading='REPLAY THE STORY?'
         text(c,x,y+32,heading,24,CYAN)
-        mission_title,mission_desc=(self.campaign.contract[0],self.campaign.contract[1]) if free_patrol else (self.campaign.mission[0],self.campaign.mission[1])
+        mission_title,mission_desc=(self.campaign.contract[0],self.campaign.contract[1]) if self.campaign.free_roam else (self.campaign.mission[0],self.campaign.mission[1])
         text(c,x,y+66,mission_title,15,GOLD)
         for i,fragment in enumerate(textwrap.wrap(mission_desc,width=int(pw/7.4))):
             text(c,x,y+98+i*20,fragment,12,(.75,.84,.88))
         text(c,x,y+190,self.objective_text(),13,CYAN)
         if self.campaign.awaiting_briefing: return
-        if self.campaign.mission[2]=='relays' or (self.campaign.stage==5 and self.campaign.contract[2]=='relays'):
-            relay_text='Hold within 120m of the active mirror for four seconds.' if self.campaign.stage==5 else 'Hold within 120m of each mirror for four continuous seconds.'
+        if self.campaign.mission[2]=='relays' or (self.campaign.free_roam and self.campaign.contract[2]=='relays'):
+            relay_text='Hold within 120m of the active mirror for four seconds.' if self.campaign.free_roam else 'Hold within 120m of each mirror for four continuous seconds.'
             text(c,x,y+214,relay_text,11,CYAN,.8)
         text(c,x,y+255,'F2  '+self.campaign.difficulty.upper()+' DIFFICULTY',14,GOLD)
         desc={'easy':'Reduced damage, fewer enemies, slower volleys. Start here.',
@@ -885,7 +1025,7 @@ class Simulation:
         if self.replay_confirm:
             text(c,x,y+465,'ENTER restart from Mission 1, keeping credits and upgrades. ESC cancel.',11,GOLD)
         elif self.campaign.awaiting_briefing:
-            label='ENTER launch next mission' if self.campaign.stage<5 else 'ENTER free patrol  /  R replay story (keep upgrades)'
+            label='ENTER launch next mission' if not self.campaign.free_roam else 'ENTER free patrol  /  R replay story (keep upgrades)'
             text(c,x,y+465,label,12,GOLD)
         else:
             text(c,x,y+465,'R replay story (keep upgrades)  /  TAB return',11,CYAN,.7)
@@ -895,32 +1035,45 @@ class Simulation:
             return
         color(c,(0.,.004,.01),.87)
         c.paint()
-        pw=min(740,w-48)
-        ph=min(480,h-50)
+        pw=min(960,w-32)
+        ph=min(620,h-32)
         x,y=(w-pw)/2,(h-ph)/2
         color(c,(.014,.038,.038),1)
         c.rectangle(x,y,pw,ph)
         c.fill()
         line(c,[(x,y),(x+pw,y),(x+pw,y+ph),(x,y+ph)],CYAN,1,.75,True)
         text(c,x+26,y+37,'OMARCHY // RELAY WORKSHOP',20,CYAN)
-        text(c,x+26,y+63,'FLIGHT PAUSED  /  FIT YOUR NEXT RELEASE',11,CYAN,.6)
-        text(c,x+26,y+91,f'AVAILABLE CREDITS  {self.campaign.credits:06d}',15,GOLD)
+        text(c,x+26,y+63,'FLIGHT PAUSED  /  SPEND CREDITS OR SHAPE A BUILD',11,CYAN,.6)
+        text(c,x+26,y+94,f'CREDITS  {self.campaign.credits:06d}',14,GOLD)
+        text(c,x+pw*.52,y+94,f'BUILD POINTS  {self.campaign.stat_points} READY  /  {self.campaign.stat_points_spent}/18 SPENT',12,GOLD)
+        split=x+pw*.49
+        line(c,[(split,y+110),(split,y+ph-42)],CYAN,1,.24)
+        text(c,x+26,y+126,'CREDIT UPGRADES',11,CYAN,.7)
+        text(c,split+18,y+126,'FLIGHT BUILD  /  MAX 18 POINTS TOTAL',11,CYAN,.7)
         descriptions={
             'weapon':'More barrels, triple damage, then faster and stronger overclocks.',
             'hull':'Adds 35 hull for early tiers, then 25 per overclock.',
             'drive':'Improves forward AND reverse thrust by 55 per tier.',
             'magnet':'Credit motes curve in from farther away at each level.',
         }
+        upgrade_gap=min(77,(ph-178)/4)
         for i,(key,(name,tiers,costs)) in enumerate(UPGRADES.items()):
             level=self.campaign.levels[key]
-            yy=y+131+i*82
-            text(c,x+26,yy,f'[{i+1}] {name}',14,CYAN)
+            yy=y+159+i*upgrade_gap
+            text(c,x+26,yy,f'[{i+1}] {name}',12,CYAN)
             offer='MAXIMUM TIER' if level>=len(costs) else f'{tiers[level+1]} / {costs[level]} CR'
-            text(c,x+26,yy+22,f'{tiers[level]}  ->  {offer}',12,GOLD if level<len(costs) else CYAN)
-            text(c,x+26,yy+42,descriptions[key],10,(.65,.8,.75),.8)
+            text(c,x+26,yy+19,f'{tiers[level]}  ->  {offer}',10,GOLD if level<len(costs) else CYAN)
+            text(c,x+26,yy+37,descriptions[key],9,(.65,.8,.75),.8)
+        point_keys=('5','6','7','8','9','0')
+        stat_gap=min(51,(ph-190)/6)
+        for i,(key,(name,description)) in enumerate(BUILD_STATS.items()):
+            level=self.campaign.stats[key];yy=y+158+i*stat_gap
+            text(c,split+18,yy,f'[{point_keys[i]}] {name}  {level}/6',11,CYAN if level<6 else GOLD)
+            text(c,split+18,yy+17,description,9,(.68,.8,.78),.85)
+            line(c,[(split+18,yy+28),(min(x+pw-25,split+18+level*22),yy+28)],GOLD,3,.82)
         if self.notice_until>self.t:
             text(c,x+26,y+ph-58,self.notice[:int((pw-52)/7)],11,GOLD)
-        text(c,x+26,y+ph-28,'1 / 2 / 3 / 4 INSTALL     U / ESC RETURN TO FLIGHT',12,CYAN,.8)
+        text(c,x+26,y+ph-28,'1-4 INSTALL UPGRADES    5-0 SPEND POINTS    T RESET BUILD    U / ESC RETURN',10,CYAN,.8)
 
     def ship(self,c,x,y,a,rgb,kind):
         if kind == -1:
@@ -1012,7 +1165,7 @@ def main():
                     self.sim.shop=False
                 else:
                     quit_all()
-            elif key in {'Return','r','Tab','F2','m','u','h','1','2','3','4','minus','equal','plus','KP_Subtract','KP_Add'}:
+            elif key in {'Return','r','Tab','F2','m','u','h','q','t','1','2','3','4','5','6','7','8','9','0','minus','equal','plus','KP_Subtract','KP_Add'}:
                 if key not in self.action_held:
                     if key=='Return':
                         if self.sim.briefing: self.sim.launch_chapter()
@@ -1035,7 +1188,10 @@ def main():
                     elif key=='h':
                         self.sim.take_control()
                         self.sim.navigate_home=not self.sim.navigate_home
-                    else: self.sim.purchase(key)
+                    elif key=='q': self.sim.cycle_weapon()
+                    elif key=='t' and self.sim.shop: self.sim.reset_build()
+                    elif key in {'1','2','3','4'}: self.sim.purchase(key)
+                    elif key in {'5','6','7','8','9','0'}: self.sim.buy_build_stat(key)
                 self.action_held.add(key)
             elif key.lower()=='p':
                 if not self.p_held:

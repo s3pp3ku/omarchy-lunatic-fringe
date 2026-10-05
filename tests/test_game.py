@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 import cairo
-from campaign import Campaign
+from campaign import Campaign, BUILD_POINT_CAP, FREE_PATROL_STAGE, UPGRADES
 from fringe import Simulation, segment_hit, load_fire_keys
 from sound import samples, EFFECTS, RATE
 
@@ -39,6 +39,9 @@ class FlightTests(unittest.TestCase):
             self.assertEqual(len(s.bullets),count)
             self.assertEqual(s.bullets[0][6],3 if tier==3 else 1)
             if tier<3:s.purchase('1')
+        before=s.campaign.credits;s.purchase('1')
+        while s.campaign.levels['weapon'] < len(UPGRADES['weapon'][2]):
+            s.purchase('1')
         before=s.campaign.credits;s.purchase('1')
         self.assertEqual(before,s.campaign.credits)
         s.purchase('2')
@@ -115,7 +118,7 @@ class FlightTests(unittest.TestCase):
 
     def test_all_mission_and_shop_screens_render(self):
         s=Simulation(8);s.take_control()
-        for stage in range(6):
+        for stage in range(FREE_PATROL_STAGE+1):
             s.campaign.stage=stage
             for size in [(1200,750),(1600,900)]:
                 surface=cairo.ImageSurface(cairo.FORMAT_RGB24,*size)
@@ -124,6 +127,8 @@ class FlightTests(unittest.TestCase):
         surface=cairo.ImageSurface(cairo.FORMAT_RGB24,1200,750)
         s.draw(cairo.Context(surface),1200,750)
         surface.write_to_png('/tmp/omavoid-workshop.png')
+        small=cairo.ImageSurface(cairo.FORMAT_RGB24,700,480)
+        s.draw(cairo.Context(small),700,480)
 
 class PolishTests(unittest.TestCase):
     def pilot(self):
@@ -154,6 +159,7 @@ class PolishTests(unittest.TestCase):
         s=self.pilot();s.rocks=[(550.,500.,20.,[1.]*9)]
         s.spawn();e=s.enemies[0];e.update(x=620.,y=500.)
         hp=e['hp']
+        s.player['shot']=10
         s.bullets=[[500.,500.,3000.,0.,1.,False,5]]
         s.step(.05)
         self.assertIn(0,s.destroyed_rocks)
@@ -185,6 +191,7 @@ class PolishTests(unittest.TestCase):
         class Recorder:
             def __init__(self):self.events=[];self.muted=False
             def play(self,event):self.events.append(event)
+            def start_music(self):pass
         s=Simulation(11);s.sound=Recorder();s.fire(s.player)
         self.assertEqual(s.sound.events,[])
         s.take_control();s.fire(s.player)
@@ -252,5 +259,71 @@ class ChapterTests(unittest.TestCase):
             self.assertEqual(len(hashes),3)
         hashes={hashlib.sha256(samples(name)).hexdigest() for name in ('laser','twin','scatter','plasma')}
         self.assertEqual(len(hashes),4)
+
+class BuildAndLootTests(unittest.TestCase):
+    def test_build_points_cap_specialization_and_save(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'campaign.json';c=Campaign(path)
+            c.add_stat_points(99)
+            self.assertEqual(c.stat_points_earned,BUILD_POINT_CAP)
+            for key in ('firepower','volley','armor'):
+                for _ in range(6): self.assertTrue(c.buy_stat(key).startswith('Build tuned:'))
+            self.assertEqual(c.stat_points_spent,18)
+            self.assertEqual(c.buy_stat('engine'),'No build points available.')
+            self.assertEqual(c.stats['engine'],0)
+            c.save();loaded=Campaign(path)
+            self.assertEqual(loaded.stats,c.stats)
+            self.assertEqual(loaded.stat_points,0)
+            loaded.reset_build()
+            self.assertEqual(loaded.stat_points,18)
+
+    def test_legacy_free_patrol_save_migrates_without_losing_access(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'old.json'
+            path.write_text(json.dumps({'version':1,'stage':5,'progress':0,'credits':700,
+                'levels':{'weapon':6,'hull':6,'drive':6,'magnet':4},'relays':[0,1,2],
+                'difficulty':'easy','free_contract':2,'free_relay_target':1}))
+            c=Campaign(path)
+            self.assertFalse(c.error)
+            self.assertTrue(c.free_roam)
+            self.assertEqual(c.stage,FREE_PATROL_STAGE)
+            self.assertEqual(c.stat_points,BUILD_POINT_CAP)
+            self.assertEqual(c.credits,700)
+            data=json.loads(path.read_text());data['awaiting_briefing']=True;path.write_text(json.dumps(data))
+            next_story=Campaign(path)
+            self.assertEqual(next_story.stage,5)
+            self.assertFalse(next_story.free_roam)
+            self.assertTrue(next_story.awaiting_briefing)
+
+    def test_campaign_expansion_keeps_free_patrol_after_eighth_chapter(self):
+        c=Campaign();c.stage=4
+        self.assertTrue(c.event('home'))
+        self.assertIn('CLEAN THE PACMAN CACHE',c.mission[0])
+        c.awaiting_briefing=False;c.stage=FREE_PATROL_STAGE-1
+        self.assertTrue(c.event('boss'))
+        self.assertTrue(c.free_roam)
+        self.assertTrue(c.awaiting_briefing)
+
+    def test_weapon_modes_loot_and_orb_effects(self):
+        s=Simulation(33);s.take_control();s.enemies=[];s.rocks=[]
+        counts={'pulse':1,'cannon':1,'flame':5,'scatter':7,'laser':1}
+        for mode,count in counts.items():
+            s.weapon_mode=mode;s.bullets.clear();s.fire(s.player)
+            self.assertEqual(len(s.bullets),count)
+            self.assertTrue(all(b[7]==mode for b in s.bullets))
+        s.pickups=[];s.player.update(x=0.,y=0.,hp=20.)
+        s.pickups=[{'x':0.,'y':0.,'kind':'health','life':10.,'phase':0.},
+                   {'x':0.,'y':0.,'kind':'shield','life':10.,'phase':0.},
+                   {'x':0.,'y':0.,'kind':'rapid','life':10.,'phase':0.}]
+        s.update_pickups(.01)
+        self.assertGreater(s.player['hp'],20)
+        self.assertGreater(s.shield_charge,0)
+        self.assertGreater(s.weapon_buffs['rapid'],0)
+
+    def test_free_roam_spawns_due_world_boss(self):
+        s=Simulation(44);s.take_control();s.campaign.stage=FREE_PATROL_STAGE
+        s.campaign.awaiting_briefing=False;s.enemies=[];s.rocks=[];s.free_boss_due=.2
+        s.step(.25)
+        self.assertTrue(any(e['boss'] for e in s.enemies))
 
 if __name__=='__main__': unittest.main()
