@@ -1,3 +1,10 @@
+# 0.3.6
+
+- Replace the slow patrol score with a faster alien theremin synth and a new audio cache version.
+- Add repeatable Omarchy free-patrol contracts and recurring named flagship hunts.
+- Add three post-lance weapon, hull and drive overclock tiers as credit sinks.
+- Pay credits for completed contracts and free-roam boss hunts.
+
 # 0.3.5
 
 - Autofire the primary weapon during manual flight.

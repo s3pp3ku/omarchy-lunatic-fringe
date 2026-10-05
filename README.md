@@ -17,7 +17,7 @@ Inspired by the 1990s *Lunatic Fringe* screensaver, this community project pairs
 
 ## Features
 
-- Five story missions against the Hater Fleet, with objectives, upgrades, and a boss encounter.
+- Five story missions against the Hater Fleet, followed by repeatable Omarchy contracts and recurring roaming boss hunts.
 - Easy, Normal, and Hard difficulty; collisions, reverse thrust, synthesized sound effects, and an original looping synth score.
 - Play on demand, preview the selected screensaver, or choose the game for automatic idle launch.
 - Separate icon and game accent choices: White, Teal, or your active Omarchy theme.
@@ -60,7 +60,7 @@ Left-click the ship icon for screensaver, play, preview, icon color, and game ac
 | - / = | Lower / raise music volume |
 | Esc | Close or exit |
 
-See [Gameplay guide](docs/GAMEPLAY.md) for mission details and upgrades. Press **M** to mute sound and music; **- / =** changes persistent music volume.
+After the story, free patrol rotates Pacman build recovery, Doomscroll cleanup, Hyprland mirror sync, Systemd boss hunts and Omarchy shipping contracts. Named flagships return on a timer, and their credits help fund the repeatable post-lance weapon, hull and drive overclocks. See [Gameplay guide](docs/GAMEPLAY.md) for details. Press **M** to mute sound and music; **- / =** changes persistent music volume.
 
 ## Saves, settings, and removal
 

@@ -172,6 +172,9 @@ class Simulation:
         self.scan_target = None
         self.respawn_shield = 3.
         self.boss_spawned = False
+        self.free_boss_due = None
+        self.free_boss_count = 0
+        self.free_boss_names = ('AUR GATEKEEPER', 'DOOMSCROLL LEVIATHAN', 'BUILD PIPELINE BREAKER', 'COMMENT SECTION MK II')
         self.explosions = []
         self.rng = random.Random(seed)
         r = self.rng
@@ -272,9 +275,10 @@ class Simulation:
         a, d = r.random()*TAU, r.uniform(700,1300)
         tier = min(8, self.campaign.stage + (self.kills//20 if self.campaign.stage==5 else 0))
         kind = 2 if boss else r.randrange(min(3, 1+self.campaign.stage))
-        hp = (100 if boss else 3+tier*2+(3 if kind==2 else 0))*self.settings['hull']
+        hp = ((135+min(8,self.kills//20)*18) if boss and self.campaign.stage==5 else 100 if boss else 3+tier*2+(3 if kind==2 else 0))*self.settings['hull']
         self.enemies.append(dict(x=wrap(p['x']+math.cos(a)*d), y=wrap(p['y']+math.sin(a)*d),
                                  a=a, hp=hp, maxhp=hp, shot=r.uniform(.3,3), kind=kind,
+                                 boss_name=(self.free_boss_names[self.free_boss_count%len(self.free_boss_names)] if boss and self.campaign.stage==5 else 'COMMENT SECTION'),
                                  boss=boss, tier=tier, radius=65 if boss else 25))
 
     def notify(self, message):
@@ -296,6 +300,7 @@ class Simulation:
             self.score = 0
             self.scan = 0.
             self.boss_spawned = False
+            self.free_boss_due=self.t+self.rng.uniform(80,115) if self.campaign.stage==5 else None
             self.returning = False
             self.player.update(x=0., y=-90., vx=0., vy=0., hp=self.campaign.max_hull, fuel=100.)
             self.camera = [0., -90.]
@@ -318,18 +323,21 @@ class Simulation:
             self.notify(f'Music volume: {round(value*100)}%')
 
     def objective_event(self, kind):
-        completed=self.campaign.mission[0]
+        free=self.campaign.stage==5
+        completed=self.campaign.contract[0] if free else self.campaign.mission[0]
+        reward=self.campaign.contract[4] if free else self.campaign.mission[4]
         if self.campaign.event(kind):
-            self.notify('Complete: '+completed)
+            self.notify(('CONTRACT COMPLETE  +'+str(reward)+' CR  //  ' if free else 'Complete: ')+completed)
             self.sound_event('mission')
-            self.salvage.clear()  # Old chapter drops cannot complete a new mission.
+            if not free:
+                self.salvage.clear()  # Old chapter drops cannot complete a new mission.
             self.scan=0.
             self.scan_target=None
             self.navigate_home=False
-            if self.pilot_started:
+            if self.pilot_started and not free:
                 self.briefing=True
                 self.keys.clear()
-            else:
+            elif not self.pilot_started:
                 self.campaign.awaiting_briefing=False
             self.persist()
 
@@ -365,6 +373,9 @@ class Simulation:
     def waypoint(self):
         if self.navigate_home:
             return 0.,0.,'HOME / WORKSHOP'
+        if self.campaign.stage==5 and self.campaign.contract[2]=='relays':
+            i=self.campaign.free_relay_target;xy=self.beacons[i]
+            return xy[0],xy[1],f'MIRROR {i+1}'
         kind = self.campaign.mission[2]
         if kind == 'relays':
             choices = [(i,xy) for i,xy in enumerate(self.beacons) if i not in self.campaign.relays]
@@ -377,6 +388,9 @@ class Simulation:
         if kind == 'salvage' and self.enemies:
             enemy=min(self.enemies,key=lambda e:math.hypot(delta(e['x'],self.player['x']),delta(e['y'],self.player['y'])))
             return enemy['x'],enemy['y'],'PACKAGE CARRIER'
+        if self.campaign.stage==5 and any(e['boss'] for e in self.enemies):
+            boss=next(e for e in self.enemies if e['boss'])
+            return boss['x'],boss['y'],boss['boss_name']
         if kind == 'boss':
             boss = next((e for e in self.enemies if e['boss']),None)
             if boss:
@@ -424,7 +438,7 @@ class Simulation:
 
     def fire(self, ship, enemy=False):
         tier = 0 if enemy else self.campaign.levels['weapon']
-        if not enemy: self.sound_event(('laser','twin','scatter','plasma')[tier])
+        if not enemy: self.sound_event(('laser','twin','scatter','plasma')[min(tier,3)])
         angles = [-.16,0,.16] if tier>=2 else ([0,0] if tier==1 else [0])
         if enemy and (ship['boss'] or ship['kind']==2):
             angles = [-.28,-.14,0,.14,.28] if ship['boss'] else [-.13,0,.13]
@@ -432,7 +446,7 @@ class Simulation:
             a = ship['a']+offset
             side = (-8 if index==0 else 8) if tier==1 else 0
             speed = 510*self.settings['speed'] if enemy else (1050 if tier==3 else 800)
-            damage = (12 if ship.get('boss') else 6+ship.get('tier',0)) if enemy else (3 if tier==3 else 1)
+            damage = (12 if ship.get('boss') else 6+ship.get('tier',0)) if enemy else (3+max(0,tier-3) if tier>=3 else 1)
             self.bullets.append([ship['x']+math.cos(a)*28-math.sin(a)*side,
                                  ship['y']+math.sin(a)*28+math.cos(a)*side,
                                  math.cos(a)*speed+ship.get('vx',0)*.35,
@@ -504,7 +518,8 @@ class Simulation:
         p['y'] = wrap(p['y']+p['vy']*dt)
         if shooting and p['shot']<=0:
             self.fire(p)
-            p['shot']=(.20,.19,.17,.13)[self.campaign.levels['weapon']]
+            weapon_level=self.campaign.levels['weapon']
+            p['shot']=max(.075,(.20,.19,.17,.13)[min(weapon_level,3)]-.012*max(0,weapon_level-3))
         for e in self.enemies:
             dx,dy=delta(p['x'],e['x']),delta(p['y'],e['y'])
             d=math.hypot(dx,dy)
@@ -559,15 +574,27 @@ class Simulation:
                 self.enemies.remove(e)
                 self.score+=250
                 self.kills+=1
-                self.campaign.credits += 500 if e['boss'] else 60+15*e['tier']
+                free_boss=e['boss'] and self.campaign.stage==5
+                self.campaign.credits += (1200 if free_boss else 500) if e['boss'] else 60+15*e['tier']
                 self.salvage.append([e['x'],e['y'],self.t])
+                contract_before=self.campaign.free_contract
                 self.objective_event('boss' if e['boss'] else 'kills')
                 if not e['boss']:
                     self.spawn()
+                elif free_boss:
+                    self.boss_spawned=False
+                    self.free_boss_count+=1
+                    self.free_boss_due=self.t+self.rng.uniform(105,155)
+                    if self.campaign.free_contract==contract_before:
+                        self.notify('Flagship down // +1,200 CR // next incursion incoming')
         if self.campaign.awaiting_briefing: return
         if self.campaign.mission[2]=='boss' and not self.boss_spawned:
             self.spawn(boss=True)
             self.boss_spawned = True
+        if self.campaign.stage==5 and not self.boss_spawned and self.free_boss_due is not None and self.t>=self.free_boss_due:
+            self.spawn(boss=True)
+            self.boss_spawned=True
+            self.notify('BOSS INBOUND // '+self.free_boss_names[self.free_boss_count%len(self.free_boss_names)])
         for core in self.salvage[:]:
             if self.campaign.awaiting_briefing or core not in self.salvage: break
             if math.hypot(delta(core[0],p['x']),delta(core[1],p['y'])) < 65:
@@ -577,15 +604,20 @@ class Simulation:
                 self.objective_event('salvage')
         self.salvage = self.salvage[-40:]
         if self.campaign.awaiting_briefing: return
-        if self.campaign.mission[2]=='relays':
-            nearby = next((i for i,xy in enumerate(self.beacons) if i not in self.campaign.relays and math.hypot(delta(xy[0],p['x']),delta(xy[1],p['y']))<120),None)
+        free_relay=self.campaign.stage==5 and self.campaign.contract[2]=='relays'
+        if self.campaign.mission[2]=='relays' or free_relay:
+            valid=(self.campaign.free_relay_target,) if free_relay else tuple(i for i in range(len(self.beacons)) if i not in self.campaign.relays)
+            nearby = next((i for i in valid if math.hypot(delta(self.beacons[i][0],p['x']),delta(self.beacons[i][1],p['y']))<120),None)
             if nearby != self.scan_target:
                 self.scan = 0.
                 self.scan_target = nearby
             if nearby is not None:
                 self.scan += dt
                 if self.scan >= 4:
-                    self.campaign.relays.append(nearby)
+                    if free_relay:
+                        self.campaign.free_relay_target=(nearby+1)%len(self.beacons)
+                    else:
+                        self.campaign.relays.append(nearby)
                     self.objective_event('relays')
                     self.scan = 0.
                     self.persist()
@@ -688,7 +720,8 @@ class Simulation:
         if self.campaign.stage>=2:
             for i,(wx,wy) in enumerate(self.beacons):
                 x,y=screen(wx,wy)
-                rgb=CYAN if i in self.campaign.relays else GOLD
+                active_relay=self.campaign.stage==5 and self.campaign.contract[2]=='relays' and i==self.campaign.free_relay_target
+                rgb=CYAN if i in self.campaign.relays or active_relay else GOLD
                 circle(c,x,y,65,rgb,.4,2)
                 self.atlas.draw(c,'relay',x,y,85,-self.t*.2)
                 text(c,x-42,y+87,f'MIRROR {i+1}',12,rgb)
@@ -696,7 +729,8 @@ class Simulation:
                     text(c,x-42,y+104,f'LINK {self.scan/4:.0%}',12,GOLD)
         wx,wy,label=self.waypoint()
         dx,dy=delta(wx,p['x']),delta(wy,p['y'])
-        if math.hypot(dx,dy)>170 and (self.navigate_home or self.campaign.mission[2] not in ('kills','endless')):
+        boss_active=self.campaign.stage==5 and any(e['boss'] for e in self.enemies)
+        if math.hypot(dx,dy)>170 and (self.navigate_home or self.campaign.mission[2] not in ('kills','endless') or boss_active):
             angle=math.atan2(dy,dx)
             x=w/2+math.cos(angle)*min(w*.36,350)
             y=h/2+math.sin(angle)*min(h*.28,210)
@@ -722,7 +756,7 @@ class Simulation:
             if -60<x<w+60 and -60<y<h+60:
                 if e['boss']:
                     self.atlas.draw(c,'relay',x,y,145,e['a'])
-                    text(c,x-60,y-90,'COMMENT SECTION',12,PINK)
+                    text(c,x-60,y-90,e.get('boss_name','COMMENT SECTION'),12,PINK)
                 else:
                     self.ship(c,x,y,e['a'],(PINK,GOLD,PURPLE)[e['kind']],e['kind'])
                 if e['hp']<e['maxhp'] or e['boss']:
@@ -734,6 +768,11 @@ class Simulation:
         self.draw_campaign(c,w,h)
 
     def objective_text(self):
+        if self.campaign.stage==5:
+            title,_,kind,goal,_=self.campaign.contract
+            if kind=='relays':
+                return f'{title}  //  MIRROR {self.campaign.free_relay_target+1}'
+            return f'{title}  {self.campaign.progress}/{goal}'
         _,_,kind,goal,_=self.campaign.mission
         return {
             'kills':f'Doomscroll drones  {self.campaign.progress}/{goal}',
@@ -797,18 +836,21 @@ class Simulation:
     def draw_briefing(self,c,w,h):
         color(c,(.003,.008,.018),.95);c.paint()
         pw=min(700,w-60);x=(w-pw)/2;y=max(25,(h-530)/2)
-        heading='CAMPAIGN COMPLETE' if self.campaign.stage==5 else 'MISSION BRIEFING'
+        free_patrol=self.campaign.stage==5 and not self.campaign.awaiting_briefing
+        heading='FREE PATROL / ACTIVE CONTRACT' if free_patrol else 'CAMPAIGN COMPLETE' if self.campaign.stage==5 else 'MISSION BRIEFING'
         if self.campaign.awaiting_briefing and self.campaign.stage<5:
             heading=f'MISSION {self.campaign.stage} COMPLETE'
         if self.replay_confirm: heading='REPLAY THE STORY?'
         text(c,x,y+32,heading,24,CYAN)
-        text(c,x,y+66,self.campaign.mission[0],15,GOLD)
-        for i,fragment in enumerate(textwrap.wrap(self.campaign.mission[1],width=int(pw/7.4))):
+        mission_title,mission_desc=(self.campaign.contract[0],self.campaign.contract[1]) if free_patrol else (self.campaign.mission[0],self.campaign.mission[1])
+        text(c,x,y+66,mission_title,15,GOLD)
+        for i,fragment in enumerate(textwrap.wrap(mission_desc,width=int(pw/7.4))):
             text(c,x,y+98+i*20,fragment,12,(.75,.84,.88))
         text(c,x,y+190,self.objective_text(),13,CYAN)
         if self.campaign.awaiting_briefing: return
-        if self.campaign.mission[2]=='relays':
-            text(c,x,y+214,'Hold within 120m of each mirror for four continuous seconds.',11,CYAN,.8)
+        if self.campaign.mission[2]=='relays' or (self.campaign.stage==5 and self.campaign.contract[2]=='relays'):
+            relay_text='Hold within 120m of the active mirror for four seconds.' if self.campaign.stage==5 else 'Hold within 120m of each mirror for four continuous seconds.'
+            text(c,x,y+214,relay_text,11,CYAN,.8)
         text(c,x,y+255,'F2  '+self.campaign.difficulty.upper()+' DIFFICULTY',14,GOLD)
         desc={'easy':'Reduced damage, fewer enemies, slower volleys. Start here.',
               'normal':'Balanced pressure and moderate protection between hits.',
@@ -848,16 +890,16 @@ class Simulation:
         text(c,x+26,y+63,'FLIGHT PAUSED  /  FIT YOUR NEXT RELEASE',11,CYAN,.6)
         text(c,x+26,y+91,f'AVAILABLE CREDITS  {self.campaign.credits:06d}',15,GOLD)
         descriptions={
-            'weapon':'More barrels, wider spread, then triple-damage plasma.',
-            'hull':'Adds 35 maximum hull and repairs the added capacity.',
+            'weapon':'More barrels, triple damage, then faster and stronger overclocks.',
+            'hull':'Adds 35 hull for early tiers, then 25 per overclock.',
             'drive':'Improves forward AND reverse thrust by 55 per tier.',
         }
         for i,(key,(name,tiers,costs)) in enumerate(UPGRADES.items()):
             level=self.campaign.levels[key]
             yy=y+131+i*82
             text(c,x+26,yy,f'[{i+1}] {name}',14,CYAN)
-            offer='MAXIMUM TIER' if level==3 else f'{tiers[level+1]} / {costs[level]} CR'
-            text(c,x+26,yy+22,f'{tiers[level]}  ->  {offer}',12,GOLD if level<3 else CYAN)
+            offer='MAXIMUM TIER' if level>=len(costs) else f'{tiers[level+1]} / {costs[level]} CR'
+            text(c,x+26,yy+22,f'{tiers[level]}  ->  {offer}',12,GOLD if level<len(costs) else CYAN)
             text(c,x+26,yy+42,descriptions[key],10,(.65,.8,.75),.8)
         if self.notice_until>self.t:
             text(c,x+26,y+ph-58,self.notice[:int((pw-52)/7)],11,GOLD)

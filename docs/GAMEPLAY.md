@@ -40,6 +40,12 @@ the final completion screen leads into free patrol. Old chapter drops do not
 count toward the next chapter. The mission number and objective stay in the
 corner; the full story is available in Tab.
 
+Free patrol is an ongoing endgame, not an empty arena. It rotates Omarchy-themed
+contracts for signed Pacman builds, Doomscroll drones, Hyprland mirrors and
+shipping waves. Systemd boss hunts lead to named Hater Fleet flagships that
+arrive periodically; each defeat pays 1,200 credits, and each completed
+contract pays its own reward. Mirror scans move to a fresh node each time.
+
 ## Upgrades
 
 Kills, pickups and mission completion award credits. Home repairs and refuels
@@ -47,9 +53,13 @@ for free. Open U there; the workshop pauses combat.
 
 | Equipment | Successive upgrades | Costs |
 | --- | --- | --- |
-| Pacman Arsenal | Twin pulse, Tri-spread, Plasma lance | 350 / 800 / 1500 |
-| Kernel Hardening | 135, 170, 205 maximum hull | 300 / 650 / 1100 |
-| Hyprdrive | +55, +110, +165 forward/reverse acceleration | 250 / 550 / 950 |
+| Pacman Arsenal | Twin pulse, Tri-spread, Plasma lance, three plasma overclocks | 350 / 800 / 1500 / 2400 / 3600 / 5200 |
+| Kernel Hardening | 135, 170, 205, 230, 255, 280 maximum hull | 300 / 650 / 1100 / 1900 / 3100 / 4800 |
+| Hyprdrive | Six tiers of +55 forward/reverse acceleration | 250 / 550 / 950 / 1600 / 2600 / 4100 |
+
+Purchase upgrades at the home workshop (U). Only three levels were available
+before the ending; the extra post-lance tiers give earned credits a continuing
+use.
 
 Death/fuel depletion returns you home, keeping upgrades and objectives, with
 a recovery fee of up to 100 credits and a short protective shield.
@@ -71,8 +81,9 @@ under fire. The home relay is a safe docking area. Planets are background scener
 ## Audio, visuals and saves
 
 Four distinct weapons, stone/metal crashes, ricochets, explosions and interface
-cues use synthesized clips. The manual flight score is an original, quiet
-cyberpunk synth loop; the screensaver demo remains silent. M mutes all audio;
+cues use synthesized clips. Manual flight has an original, quiet uptempo alien
+synth score with sliding theremin-like lead, syncopated bass and arcade rhythm;
+the screensaver demo remains silent. M mutes all audio;
 - and = adjust music volume. Audio caches are under `~/.cache/omavoid/`; music volume is saved in
 `~/.config/omavoid/audio.json`.
 
