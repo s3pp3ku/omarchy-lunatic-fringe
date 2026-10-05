@@ -83,48 +83,60 @@ def write_effects(directory):
     return directory
 
 def write_music(directory):
-    """Create a quick, alien arcade loop with a sliding theremin-like lead."""
+    """Create a two-minute evolving cyberpunk arcade score in the user cache."""
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
-    path=directory/'neon-patrol.wav'
+    path=directory/'omarchy-afterburn.wav'
     if path.exists(): return path
-    bpm=118.;beat=60./bpm;eighth=beat/2;bars=16;frames=int(RATE*beat*4*bars)
-    # D Phrygian colors and tritones give it a strange, deep-space edge.
-    chords=((50,53,57,60,64),(46,50,53,57,60),(41,45,48,53,56),(48,51,55,58,62))
-    roots=(38,34,29,36)
-    melody=((74,77,81,84,82,77,73,69),(72,74,77,81,79,74,70,65),
-            (69,72,77,80,77,72,68,65),(72,75,79,82,80,75,71,67))
+    bpm=122.;beat=60./bpm;eighth=beat/2;bars=64;frames=int(RATE*beat*4*bars)
+    # A 64-bar, four-part arc: low-key orbital intro, full pulse, bright run,
+    # then a stripped build back into the opening. Modal chords keep it alien.
+    chords=((50,57,60,64,69),(46,53,57,62,65),(43,50,53,57,62),(45,52,55,58,64),
+            (48,55,59,62,66),(39,46,50,53,57),(41,48,52,55,60),(46,53,57,62,65))
+    roots=(38,34,31,33,36,39,41,34)
+    motif=((62,65,69,72,69,65,60,65),(60,63,67,70,67,63,58,63),
+           (59,62,65,69,65,62,57,62),(57,60,64,67,64,60,55,60))
     def hz(note): return 440.*(2.**((note-69)/12.))
-    audio=array.array('h');lead_phase=0.
+    audio=array.array('h');bass_phase=0.;motif_phase=0.
     for i in range(frames):
-        t=i/RATE; beatpos=t/beat; bar=int(beatpos//4); chord=chords[bar%4]
-        # A gently detuned bed leaves room for the more animated lead.
-        pad=sum(math.sin(math.tau*hz(n)*t+index*.41) for index,n in enumerate(chord[:4]))*.026
-        step=int(t/eighth);step_in=step%8;local=t-step*eighth
-        melodyline=melody[bar%4]
-        # Glide between notes over a small part of each step, with restrained vibrato.
-        glide=min(1.,local/.055)
-        note=melodyline[step_in]+(melodyline[(step_in+1)%8]-melodyline[step_in])*glide
-        vibrato=.22*math.sin(math.tau*5.2*t)
-        leadfreq=hz(note+vibrato)
-        lead_phase+=math.tau*leadfreq/RATE
-        lead=math.sin(lead_phase)+.22*math.sin(lead_phase*2.015)
-        lead*=min(1.,local/.018)*(.72+.28*math.sin(math.pi*min(1.,local/eighth)))*.085
-        # Moving eighth-note sequence and a syncopated subline keep the flight lively.
-        arp_note=chord[(0,2,3,2,1,3,4,2)[step_in]]
-        arp_env=min(1.,local/.008)*math.exp(-local*7.0)
-        arp=(math.sin(math.tau*hz(arp_note)*t)+.18*math.sin(math.tau*hz(arp_note)*2.01*t))*arp_env*.046
-        beatno=int(beatpos);localbeat=t-beatno*beat
-        bassfreq=hz(roots[bar%4]-12)
-        bass=math.sin(math.tau*(bassfreq-16*localbeat)*localbeat)*math.exp(-localbeat*5.0)*.12
+        t=i/RATE; beatpos=t/beat; beatno=int(beatpos); bar=beatno//4
+        section=bar//16; chord_index=(bar//2+section)%len(chords);chord=chords[chord_index]
+        eighthno=int(t/eighth);step=eighthno%8;local8=t-eighthno*eighth
+        localbeat=t-beatno*beat;barbeat=beatno%4
+        # Soft, wide synth chords slowly breathe beneath the arcade rhythm.
+        swell=.68+.32*math.sin(math.tau*t/11.0)
+        pad=0.
+        for index,note in enumerate(chord[:4]):
+            phase=math.tau*hz(note)*t+index*.37
+            pad+=(math.sin(phase)+.24*math.sin(phase*2.003))*.009*swell
+        # Rounded, syncopated bass pulses anchor the track without a lead squeal.
+        bass_hits=(0,3,4,6) if section!=3 else (0,4,6)
+        bass_env=math.exp(-local8*9.5) if step in bass_hits else 0.
+        bass_note=roots[chord_index]-12
+        bass_freq=hz(bass_note)
+        bass_phase+=math.tau*bass_freq/RATE
+        bass=(math.sin(bass_phase)+.22*math.sin(bass_phase*2.01))*bass_env*(.15 if section else .10)
+        # Short, percussive digital notes appear in the middle sections only.
+        motif_hits=(0,2,3,6) if section==2 else (0,4) if section==1 else ()
+        motif_note=motif[(bar//4)%len(motif)][step]
+        motif_freq=hz(motif_note)
+        motif_phase+=math.tau*motif_freq/RATE
+        motif_env=math.exp(-local8*17.) if step in motif_hits else 0.
+        pluck=(math.sin(motif_phase)+.28*math.sin(motif_phase*2.01))*motif_env*(.047 if section==2 else .026)
         barbeat=beatno%4
         kick=0.
-        if barbeat in (0,2):
-            kick=math.sin(math.tau*(62-34*localbeat)*localbeat)*math.exp(-localbeat*23)*.105
-        snare=(.035*math.sin(math.tau*210*localbeat)+.012*math.sin(math.tau*1730*localbeat))*math.exp(-localbeat*19) if barbeat in (1,3) else 0.
-        tick=(.009*math.sin(math.tau*1550*localbeat)*math.exp(-localbeat*42)) if step_in in (2,6) else 0.
-        value=pad+lead+arp+bass+kick+snare+tick
-        # Gentle stereo spread on the arpeggio; no abrupt panning.
-        left=max(-.8,min(.8,value+arp*.20));right=max(-.8,min(.8,value-arp*.20))
+        if barbeat in (0,2) and section!=3 or barbeat==0:
+            kick=math.sin(math.tau*(72-39*localbeat)*localbeat)*math.exp(-localbeat*25)*(.13 if section else .075)
+        snare_gain=(.034 if section in (1,2) else .022 if section==3 else .012)
+        snare=(snare_gain*math.sin(math.tau*185*localbeat)+.012*math.sin(math.tau*1550*localbeat))*math.exp(-localbeat*21) if barbeat in (1,3) and section else 0.
+        hat_gain=.011 if section in (1,2) else .006 if section==3 else .003
+        hat_local=t-eighthno*eighth
+        hat=hat_gain*math.sin(math.tau*(1800+120*(step%2))*hat_local)*math.exp(-hat_local*48)
+        if section==0 and step not in (0,4): hat=0.
+        if section==3 and step in (1,3,5,7): hat=0.
+        value=pad+pluck+bass+kick+snare+hat
+        # Gentle stereo width comes from the chord bed, avoiding hard panning.
+        width=sum(math.sin(math.tau*hz(note)*t+index*.37+.12) for index,note in enumerate(chord[:3]))*.003
+        left=max(-.8,min(.8,value+width));right=max(-.8,min(.8,value-width))
         audio.append(int(left*32767));audio.append(int(right*32767))
     if sys.byteorder!='little': audio.byteswap()
     with wave.open(str(path),'wb') as out:
@@ -155,7 +167,7 @@ class SoundBank:
                 player.set_property('volume',.45)
                 self.voices.append([player,0.])
             try:
-                music_path=write_music(Path(directory).parent/'music'/'v2')
+                music_path=write_music(Path(directory).parent/'music'/'v3')
                 self.music=Gst.ElementFactory.make('playbin',None)
                 sink=Gst.ElementFactory.make('fakesink',None)
                 if self.music is None or sink is None: raise RuntimeError('Missing music playback plugin')

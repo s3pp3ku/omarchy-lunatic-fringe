@@ -81,9 +81,10 @@ under fire. The home relay is a safe docking area. Planets are background scener
 ## Audio, visuals and saves
 
 Four distinct weapons, stone/metal crashes, ricochets, explosions and interface
-cues use synthesized clips. Manual flight has an original, quiet uptempo alien
-synth score with sliding theremin-like lead, syncopated bass and arcade rhythm;
-the screensaver demo remains silent. M mutes all audio;
+cues use synthesized clips. Manual flight has an original, quiet two-minute
+cyberpunk arcade score with pulsing bass, electronic percussion, atmospheric
+synth chords and restrained digital motifs; the screensaver demo remains
+silent. M mutes all audio;
 - and = adjust music volume. Audio caches are under `~/.cache/omavoid/`; music volume is saved in
 `~/.config/omavoid/audio.json`.
 

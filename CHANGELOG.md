@@ -1,3 +1,8 @@
+# 0.3.7
+
+- Replace the short melodic loop with a two-minute evolving cyberpunk arcade score: pulsing bass, electronic percussion, atmospheric chords and restrained digital motifs.
+- Remove the sliding lead and version the music cache so the new composition replaces the previous one.
+
 # 0.3.6
 
 - Replace the slow patrol score with a faster alien theremin synth and a new audio cache version.
