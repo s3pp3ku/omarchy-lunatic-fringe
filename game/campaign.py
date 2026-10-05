@@ -27,6 +27,7 @@ UPGRADES = {
     'weapon': ('PACMAN ARSENAL', ('Single pulse', 'Twin pulse', 'Tri-spread', 'Plasma lance', 'Plasma overclock I', 'Plasma overclock II', 'Plasma overclock III'), (350, 800, 1500, 2400, 3600, 5200)),
     'hull': ('KERNEL HARDENING', ('100 hull', '135 hull', '170 hull', '205 hull', '230 hull', '255 hull', '280 hull'), (300, 650, 1100, 1900, 3100, 4800)),
     'drive': ('HYPRDRIVE', ('Standard', 'Boost I', 'Boost II', 'Boost III', 'Boost IV', 'Boost V', 'Boost VI'), (250, 550, 950, 1600, 2600, 4100)),
+    'magnet': ('PACMAN CREDIT MAGNET', ('Offline', 'Mote Magnet I', 'Mote Magnet II', 'Mote Magnet III', 'Mote Magnet IV'), (300, 700, 1450, 2800)),
 }
 
 class Campaign:
@@ -38,7 +39,7 @@ class Campaign:
         self.stage = 0
         self.progress = 0
         self.credits = 0
-        self.levels = dict(weapon=0, hull=0, drive=0)
+        self.levels = dict(weapon=0, hull=0, drive=0, magnet=0)
         self.relays = []
         self.free_contract = 0
         self.free_relay_target = 0
@@ -55,7 +56,10 @@ class Campaign:
                 stage = integer(data['stage'], 0, len(MISSIONS)-1)
                 progress = integer(data['progress'], 0, 1000000)
                 credits = integer(data['credits'], 0, 100000000)
-                levels = {key: integer(data['levels'][key], 0, len(UPGRADES[key][2])) for key in UPGRADES}
+                saved_levels=data.get('levels',{})
+                if not isinstance(saved_levels,dict):
+                    raise ValueError('invalid upgrade levels')
+                levels = {key: integer(saved_levels.get(key,0), 0, len(UPGRADES[key][2])) for key in UPGRADES}
                 relays = data.get('relays', [])
                 if not isinstance(relays, list) or any(type(i) is not int or i not in range(3) for i in relays):
                     raise ValueError('invalid relay state')

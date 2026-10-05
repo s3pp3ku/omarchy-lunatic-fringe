@@ -136,7 +136,8 @@ def write_music(directory):
         value=pad+pluck+bass+kick+snare+hat
         # Gentle stereo width comes from the chord bed, avoiding hard panning.
         width=sum(math.sin(math.tau*hz(note)*t+index*.37+.12) for index,note in enumerate(chord[:3]))*.003
-        left=max(-.8,min(.8,value+width));right=max(-.8,min(.8,value-width))
+        # Give the score enough body to remain audible under weapon and engine cues.
+        left=max(-.8,min(.8,(value+width)*2.0));right=max(-.8,min(.8,(value-width)*2.0))
         audio.append(int(left*32767));audio.append(int(right*32767))
     if sys.byteorder!='little': audio.byteswap()
     with wave.open(str(path),'wb') as out:
@@ -147,10 +148,10 @@ def write_music(directory):
 class SoundBank:
     def __init__(self, directory, settings=None):
         self.voices=[];self.last={};self.muted=False;self.error='';self.variants={}
-        self.music=None;self.music_uri='';self.music_error='';self.music_volume=.16
+        self.music=None;self.music_uri='';self.music_error='';self.music_volume=.24
         self.settings=Path(settings) if settings else None
         if self.settings:
-            try: self.music_volume=max(0.,min(.35,float(json.loads(self.settings.read_text()).get('music_volume',.16))))
+            try: self.music_volume=max(0.,min(.35,float(json.loads(self.settings.read_text()).get('music_volume',.24))))
             except (OSError,ValueError,TypeError,AttributeError): pass
         try:
             import gi
@@ -167,7 +168,7 @@ class SoundBank:
                 player.set_property('volume',.45)
                 self.voices.append([player,0.])
             try:
-                music_path=write_music(Path(directory).parent/'music'/'v3')
+                music_path=write_music(Path(directory).parent/'music'/'v4')
                 self.music=Gst.ElementFactory.make('playbin',None)
                 sink=Gst.ElementFactory.make('fakesink',None)
                 if self.music is None or sink is None: raise RuntimeError('Missing music playback plugin')

@@ -18,7 +18,7 @@ Inspired by the 1990s *Lunatic Fringe* screensaver, this community project pairs
 ## Features
 
 - Five story missions against the Hater Fleet, followed by repeatable Omarchy contracts and recurring roaming boss hunts.
-- Easy, Normal, and Hard difficulty; collisions, reverse thrust, synthesized sound effects, and an original evolving two-minute cyberpunk arcade score.
+- Easy, Normal, and Hard difficulty; collisions, reverse thrust, synthesized sound effects, a four-level credit magnet, and an original evolving two-minute cyberpunk arcade score.
 - Play on demand, preview the selected screensaver, or choose the game for automatic idle launch.
 - Separate icon and game accent choices: White, Teal, or your active Omarchy theme.
 - Personal campaign progress, controls, and music volume stay in your home directory across plugin updates.

@@ -146,6 +146,7 @@ class Simulation:
         self.atlas = SpriteAtlas()
         self.save_path = save_path
         self.sound = None
+        self.sound_on_auto = False
         self.briefing = False
         self.replay_confirm = False
         self.fire_keys = {'Control_L'}
@@ -232,7 +233,7 @@ class Simulation:
         if self.sound:
             self.sound.muted=self.campaign.muted
             if self.sound.muted: self.sound.hush()
-            elif self.pilot_started and not self.auto: self.sound.start_music()
+            elif self.pilot_started and (not self.auto or self.sound_on_auto): self.sound.start_music()
         self.notify('Sound and music muted' if self.campaign.muted else 'Sound and music on')
         self.persist()
 
@@ -410,7 +411,7 @@ class Simulation:
     def purchase(self, key):
         if not self.shop:
             return
-        category = {'1':'weapon','2':'hull','3':'drive'}.get(key)
+        category = {'1':'weapon','2':'hull','3':'drive','4':'magnet'}.get(key)
         if category:
             old_max = self.campaign.max_hull
             result=self.campaign.buy(category)
@@ -597,7 +598,16 @@ class Simulation:
             self.notify('BOSS INBOUND // '+self.free_boss_names[self.free_boss_count%len(self.free_boss_names)])
         for core in self.salvage[:]:
             if self.campaign.awaiting_briefing or core not in self.salvage: break
-            if math.hypot(delta(core[0],p['x']),delta(core[1],p['y'])) < 65:
+            distance=math.hypot(delta(p['x'],core[0]),delta(p['y'],core[1]))
+            magnet=self.campaign.levels['magnet']
+            radius=(0,150,245,365,510)[magnet]
+            if magnet and 65<distance<radius:
+                speed=min(1000,210+magnet*135+(radius-distance)*1.4)
+                step=min(distance-55,speed*dt)
+                core[0]=wrap(core[0]+delta(p['x'],core[0])/distance*step)
+                core[1]=wrap(core[1]+delta(p['y'],core[1])/distance*step)
+                distance=math.hypot(delta(p['x'],core[0]),delta(p['y'],core[1]))
+            if distance < 65:
                 self.salvage.remove(core)
                 self.sound_event('pickup')
                 self.campaign.credits += 30
@@ -715,6 +725,12 @@ class Simulation:
             text(c,bx-63,by+120,'OMARCHY // RELAY',11,CYAN,.7)
         for core in self.salvage:
             x,y=screen(core[0],core[1])
+            magnet=self.campaign.levels['magnet']
+            radius=(0,150,245,365,510)[magnet]
+            distance=math.hypot(delta(self.player['x'],core[0]),delta(self.player['y'],core[1]))
+            if magnet and distance<radius*.7:
+                sx,sy=screen(self.player['x'],self.player['y'])
+                line(c,[(x,y),(sx,sy)],GOLD,1,.18*(1-distance/(radius*.7)))
             circle(c,x,y,12+math.sin(self.t*4)*2,GOLD,.8,2)
             line(c,[(x-5,y),(x,y-5),(x+5,y),(x,y+5)],GOLD,2,1,True)
         if self.campaign.stage>=2:
@@ -893,6 +909,7 @@ class Simulation:
             'weapon':'More barrels, triple damage, then faster and stronger overclocks.',
             'hull':'Adds 35 hull for early tiers, then 25 per overclock.',
             'drive':'Improves forward AND reverse thrust by 55 per tier.',
+            'magnet':'Credit motes curve in from farther away at each level.',
         }
         for i,(key,(name,tiers,costs)) in enumerate(UPGRADES.items()):
             level=self.campaign.levels[key]
@@ -903,7 +920,7 @@ class Simulation:
             text(c,x+26,yy+42,descriptions[key],10,(.65,.8,.75),.8)
         if self.notice_until>self.t:
             text(c,x+26,y+ph-58,self.notice[:int((pw-52)/7)],11,GOLD)
-        text(c,x+26,y+ph-28,'1 / 2 / 3 INSTALL     U / ESC RETURN TO FLIGHT',12,CYAN,.8)
+        text(c,x+26,y+ph-28,'1 / 2 / 3 / 4 INSTALL     U / ESC RETURN TO FLIGHT',12,CYAN,.8)
 
     def ship(self,c,x,y,a,rgb,kind):
         if kind == -1:
@@ -921,6 +938,7 @@ def main():
     parser.add_argument('--seconds',type=float,default=0,help='Close automatically after this many seconds')
     parser.add_argument('--app-id',default='org.omarchy.screensaver')
     parser.add_argument('--sound-check',action='store_true',help='Play a short effects check during the preview')
+    parser.add_argument('--music',action='store_true',help='Play soundtrack during a user-launched game')
     args=parser.parse_args()
     if args.render:
         sim=Simulation(42)
@@ -945,6 +963,10 @@ def main():
     shared=Simulation(save_path=Path.home()/'.local/state/omavoid/campaign.json')
     shared.fire_keys=load_fire_keys(Path.home()/'.config/omavoid/controls.json')
     shared.sound=SoundBank(Path.home()/'.cache/omavoid/sfx',Path.home()/'.config/omavoid/audio.json')
+    shared.sound_on_auto=args.music
+    if args.music:
+        shared.sound.muted=Campaign(shared.save_path).muted
+        if not shared.sound.muted: shared.sound.start_music()
     def quit_all(*_):
         if args.sound_check:
             print('Audio check: '+(shared.sound.error or shared.sound.music_error or 'no playback errors'),flush=True)
@@ -990,7 +1012,7 @@ def main():
                     self.sim.shop=False
                 else:
                     quit_all()
-            elif key in {'Return','r','Tab','F2','m','u','h','1','2','3','minus','equal','plus','KP_Subtract','KP_Add'}:
+            elif key in {'Return','r','Tab','F2','m','u','h','1','2','3','4','minus','equal','plus','KP_Subtract','KP_Add'}:
                 if key not in self.action_held:
                     if key=='Return':
                         if self.sim.briefing: self.sim.launch_chapter()
@@ -1021,7 +1043,7 @@ def main():
                         self.sim.take_control()
                     elif not self.sim.shop and not self.sim.briefing:
                         self.sim.auto=True
-                        self.sim.sound.hush()
+                        if not self.sim.sound_on_auto: self.sim.sound.hush()
                     self.sim.keys.clear()
                 self.p_held=True
             elif key in {'Shift_L','Shift_R','Control_R','Alt_L','Alt_R','Caps_Lock'}:

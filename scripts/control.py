@@ -143,13 +143,15 @@ class Controller:
         self.state.unlink()
         return self.status()
 
-    def command(self, selected):
+    def command(self, selected, music=False):
         if selected=='omavoid':
-            return ['/bin/bash',str(self.root/'bin/omavoid')]
+            command=['/bin/bash',str(self.root/'bin/omavoid')]
+            if music: command.append('--music')
+            return command
         return ['omarchy-launch-screensaver','force']
 
-    def launch(self, selected):
-        subprocess.Popen(self.command(selected),start_new_session=True,
+    def launch(self, selected, music=False):
+        subprocess.Popen(self.command(selected,music=music),start_new_session=True,
                          stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         return self.status()
 
@@ -175,7 +177,7 @@ def main():
         if args.action=='idle':
             controller.idle();return
         if args.action in ('play','preview'):
-            result=controller.launch('omavoid' if args.action=='play' else controller.mode())
+            result=controller.launch('omavoid' if args.action=='play' else controller.mode(),music=args.action=='play')
         elif args.action=='status': result=controller.status()
         else:
             lock=controller.home/'.local/state/omavoid/selector.lock'

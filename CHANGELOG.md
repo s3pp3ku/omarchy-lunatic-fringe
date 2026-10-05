@@ -1,3 +1,9 @@
+# 0.3.8
+
+- Add four purchasable credit-magnet tiers that pull nearby salvage motes toward the ship.
+- Start music immediately from the topbar Play action while keeping automatic idle screensaver audio silent.
+- Raise the soundtrack level and use a fresh cache version so the score is clearly audible.
+
 # 0.3.7
 
 - Replace the short melodic loop with a two-minute evolving cyberpunk arcade score: pulsing bass, electronic percussion, atmospheric chords and restrained digital motifs.
