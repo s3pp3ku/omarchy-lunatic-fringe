@@ -229,7 +229,8 @@ class Simulation:
         if self.sound:
             self.sound.muted=self.campaign.muted
             if self.sound.muted: self.sound.hush()
-        self.notify('Sound muted' if self.campaign.muted else 'Sound on')
+            elif self.pilot_started and not self.auto: self.sound.start_music()
+        self.notify('Sound and music muted' if self.campaign.muted else 'Sound and music on')
         self.persist()
 
     def damage_player(self,amount):
@@ -307,6 +308,14 @@ class Simulation:
             self.briefing=self.campaign.awaiting_briefing or self.campaign.stage==5
             if self.campaign.error: self.notify(self.campaign.error)
         self.auto = False
+        if self.sound and not self.sound.muted:
+            self.sound.start_music()
+
+    def change_music_volume(self, delta):
+        self.take_control()
+        if self.sound:
+            value=self.sound.adjust_music(delta)
+            self.notify(f'Music volume: {round(value*100)}%')
 
     def objective_event(self, kind):
         completed=self.campaign.mission[0]
@@ -480,7 +489,7 @@ class Simulation:
         else:
             p['a'] += (int('Right' in keys or 'd' in keys)-int('Left' in keys or 'a' in keys))*3.4*dt
             thrust = int('Up' in keys or 'w' in keys)-int('Down' in keys or 's' in keys)
-            shooting = bool(self.fire_keys & keys)
+            shooting = True  # Primary weapon autofires during manual flight.
         if thrust and p['fuel'] > 0:
             acceleration = (300+55*self.campaign.levels['drive'])*thrust
             p['vx'] += math.cos(p['a'])*acceleration*dt
@@ -780,7 +789,7 @@ class Simulation:
             text(c,(w-width)/2,h*.30,title,size,CYAN,alpha)
             subtitle='S T I L L   S H I P P I N G'
             text(c,w/2-138,h*.30+35,subtitle,15,(.7,.82,.87),alpha*.75)
-            text(c,w/2-174,h*.30+76,'W / ARROWS  Fly     LEFT CTRL  Fire',13,CYAN,alpha*.8)
+            text(c,w/2-174,h*.30+76,'W / ARROWS  Fly     WEAPONS  AUTOFIRE',13,CYAN,alpha*.8)
             text(c,w/2-174,h*.30+102,'TAB  Briefing      F2  Difficulty',11,(.7,.82,.87),alpha*.7)
         if self.briefing:
             self.draw_briefing(c,w,h)
@@ -805,12 +814,14 @@ class Simulation:
               'normal':'Balanced pressure and moderate protection between hits.',
               'hard':'Stronger enemies, faster volleys, short hit protection.'}[self.campaign.difficulty]
         text(c,x,y+278,desc,11,(.75,.84,.88))
-        text(c,x,y+310,'M  Sound: '+('OFF' if self.campaign.muted else 'ON'),12,CYAN)
-        if self.sound and self.sound.error:
-            text(c,x,y+329,'Audio device unavailable; gameplay continues silently.',10,PINK)
+        text(c,x,y+310,'AUDIO  '+('OFF' if self.campaign.muted else 'ON')+f'   MUSIC {round(self.sound.music_volume*100) if self.sound else 0}%',12,CYAN)
+        if self.sound and (self.sound.error or self.sound.music_error):
+            message='Audio device unavailable; gameplay continues silently.' if self.sound.error else 'Music playback unavailable; effects still work.'
+            text(c,x,y+329,message,10,PINK)
         controls=['W / UP forward    S / DOWN reverse    A / D or LEFT / RIGHT turn',
-                  'LEFT CTRL fire    H home waypoint    U workshop at home',
-                  'P autopilot    ESC exit    TAB resume']
+                  'Weapons autofire while piloting    H home    U workshop',
+                  'M audio on/off    - / = music volume    P autopilot',
+                  'ESC exit    TAB resume']
         for i,fragment in enumerate(controls):
             text(c,x,y+373+i*24,fragment,11,(.75,.84,.88))
         if self.replay_confirm:
@@ -891,10 +902,10 @@ def main():
     from sound import SoundBank
     shared=Simulation(save_path=Path.home()/'.local/state/omavoid/campaign.json')
     shared.fire_keys=load_fire_keys(Path.home()/'.config/omavoid/controls.json')
-    shared.sound=SoundBank(Path.home()/'.cache/omavoid/sfx')
+    shared.sound=SoundBank(Path.home()/'.cache/omavoid/sfx',Path.home()/'.config/omavoid/audio.json')
     def quit_all(*_):
         if args.sound_check:
-            print('Audio check: '+(shared.sound.error or 'no playback errors'),flush=True)
+            print('Audio check: '+(shared.sound.error or shared.sound.music_error or 'no playback errors'),flush=True)
         shared.persist()
         shared.sound.close()
         Gtk.main_quit()
@@ -937,7 +948,7 @@ def main():
                     self.sim.shop=False
                 else:
                     quit_all()
-            elif key in {'Return','r','Tab','F2','m','u','h','1','2','3'}:
+            elif key in {'Return','r','Tab','F2','m','u','h','1','2','3','minus','equal','plus','KP_Subtract','KP_Add'}:
                 if key not in self.action_held:
                     if key=='Return':
                         if self.sim.briefing: self.sim.launch_chapter()
@@ -953,6 +964,8 @@ def main():
                         self.sim.keys.clear()
                     elif key=='F2': self.sim.cycle_difficulty()
                     elif key=='m': self.sim.toggle_mute()
+                    elif key in {'minus','KP_Subtract'}: self.sim.change_music_volume(-.03)
+                    elif key in {'equal','plus','KP_Add'}: self.sim.change_music_volume(.03)
                     elif key=='u':
                         if not self.sim.briefing: self.sim.toggle_shop()
                     elif key=='h':

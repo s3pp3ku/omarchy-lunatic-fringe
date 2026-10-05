@@ -18,10 +18,10 @@ Inspired by the 1990s *Lunatic Fringe* screensaver, this community project pairs
 ## Features
 
 - Five story missions against the Hater Fleet, with objectives, upgrades, and a boss encounter.
-- Easy, Normal, and Hard difficulty; collisions, reverse thrust, and synthesized sound effects.
+- Easy, Normal, and Hard difficulty; collisions, reverse thrust, synthesized sound effects, and an original looping synth score.
 - Play on demand, preview the selected screensaver, or choose the game for automatic idle launch.
 - Separate icon and game accent choices: White, Teal, or your active Omarchy theme.
-- Personal campaign progress and controls stay in your home directory across plugin updates.
+- Personal campaign progress, controls, and music volume stay in your home directory across plugin updates.
 
 ## Install
 
@@ -51,15 +51,16 @@ Left-click the ship icon for screensaver, play, preview, icon color, and game ac
 | W / Up | Thrust |
 | S / Down | Reverse |
 | A / D / arrow keys | Turn |
-| Left Ctrl | Fire |
+| While piloting | Primary weapon autofires |
 | Tab / Enter | Briefing / continue |
 | H / U | Home waypoint / workshop |
 | 1 / 2 / 3 | Buy workshop upgrades |
 | F2 | Cycle difficulty |
-| M / P | Mute / autopilot |
+| M / P | Mute all audio / autopilot |
+| - / = | Lower / raise music volume |
 | Esc | Close or exit |
 
-See [Gameplay guide](docs/GAMEPLAY.md) for mission details and upgrades.
+See [Gameplay guide](docs/GAMEPLAY.md) for mission details and upgrades. Press **M** to mute sound and music; **- / =** changes persistent music volume.
 
 ## Saves, settings, and removal
 

@@ -11,25 +11,20 @@ load your saved campaign at home.
 | W / Up | Forward thrust |
 | S / Down | Reverse thrust; slows forward motion, then backs away |
 | A / D / Left / Right | Turn |
-| Left Ctrl | Fire |
+| While piloting | Primary weapon autofires |
 | Tab | Pause and open mission briefing |
 | Enter | Accept next chapter; deploy the release at home in Mission 5 |
 | H | Toggle home waypoint |
 | U | Workshop within 145m of home |
 | 1 / 2 / 3 | Buy weapon / hull / drive upgrades in workshop |
 | F2 | Cycle Easy, Normal, Hard |
-| M | Toggle sound |
+| M | Toggle sound and music |
+| - / = | Lower / raise music volume |
 | P | Toggle autopilot |
 | Esc | Close briefing/workshop or exit and save |
 | R, then Enter | Replay from briefing, keeping credits and upgrades |
 
-`~/.config/omavoid/controls.json` can override firing:
-
-```json
-{"fire": ["Control_L"]}
-```
-
-For a Space alternative, use `{"fire":["Control_L","space"]}`.
+Firing is automatic during manual flight; the old fire-key preference is ignored.
 
 ## Missions
 
@@ -76,8 +71,10 @@ under fire. The home relay is a safe docking area. Planets are background scener
 ## Audio, visuals and saves
 
 Four distinct weapons, stone/metal crashes, ricochets, explosions and interface
-cues use 45 original synthesized clips. Autopilot stays silent; M mutes manual
-play. Sound cache: `~/.cache/omavoid/sfx/v2/`.
+cues use synthesized clips. The manual flight score is an original, quiet
+cyberpunk synth loop; the screensaver demo remains silent. M mutes all audio;
+- and = adjust music volume. Audio caches are under `~/.cache/omavoid/`; music volume is saved in
+`~/.config/omavoid/audio.json`.
 
 The title fades to a corner label. The compact HUD shows the objective, credits,
 hull, fuel and radar. Smooth camera lag, engine trails and white/blue/violet stars

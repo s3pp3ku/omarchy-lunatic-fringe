@@ -1,8 +1,11 @@
 """Original synthesized arcade effects, played through a bounded GStreamer pool."""
 import array
+import json
 import math
+import os
 import random
 import sys
+import tempfile
 import time
 import wave
 from pathlib import Path
@@ -13,6 +16,7 @@ EFFECTS = {'laser':.13, 'twin':.16, 'scatter':.20, 'plasma':.30,
            'ricochet':.12, 'rock_break':.46, 'explosion':.62,
            'pickup':.18, 'upgrade':.45, 'mission':.7, 'dock':.28}
 VARIANTS=3
+WEAPONS={'laser','twin','scatter','plasma'}
 
 def samples(name, variant=0):
     rng=random.Random(19+variant*127+sum(map(ord,name)))
@@ -28,22 +32,22 @@ def samples(name, variant=0):
         if name in ('laser','twin','scatter','plasma'):
             if name=='laser':
                 # Snappy electrical chirp plus an attack click.
-                freq=1550*math.exp(-t*24)+170
+                freq=880*math.exp(-t*16)+145
                 phase+=math.tau*freq*pitch/RATE
-                value=.52*math.sin(phase)+.15*math.sin(phase*2.01)+noise*.2*math.exp(-t*90)
+                value=.34*math.sin(phase)+.07*math.sin(phase*2.01)+noise*.035*math.exp(-t*90)
             elif name=='twin':
                 # Two detuned oscillators with a delayed second barrel.
-                freq=1250*math.exp(-t*19)+135
+                freq=760*math.exp(-t*15)+125
                 phase+=math.tau*freq*pitch/RATE
-                value=.36*math.sin(phase)+(.29*math.sin(phase*1.075) if t>.022 else 0)+noise*.08
+                value=.27*math.sin(phase)+(.18*math.sin(phase*1.075) if t>.022 else 0)+noise*.025
             elif name=='scatter':
-                freq=580*math.exp(-t*15)+70
+                freq=430*math.exp(-t*12)+65
                 phase+=math.tau*freq*pitch/RATE
-                value=.38*math.sin(phase)+filtered*.9+noise*.25*math.exp(-t*30)
+                value=.27*math.sin(phase)+filtered*.55+noise*.10*math.exp(-t*30)
             else:
-                freq=320*math.exp(-t*8)+65
+                freq=260*math.exp(-t*7)+58
                 phase+=math.tau*freq*pitch/RATE
-                value=.5*math.sin(phase)+.22*math.sin(phase*2+3*math.sin(t*95))+filtered*.3
+                value=.34*math.sin(phase)+.12*math.sin(phase*2+2*math.sin(t*65))+filtered*.16
         elif name in ('explosion','collision','rock_crash','metal_crash','rock_break','hit','ricochet'):
             freq={'explosion':55,'collision':120,'rock_crash':75,'metal_crash':230,
                   'rock_break':60,'hit':190,'ricochet':1650}[name]*pitch
@@ -62,7 +66,8 @@ def samples(name, variant=0):
                    'mission':[392,494,587,784,988], 'dock':[523,659,784]}[name]
             phase+=math.tau*notes[min(len(notes)-1,int(u*len(notes)))]*pitch/RATE
             value=math.sin(phase)*.65
-        result.append(int(max(-1,min(1,value*envelope))*.48*32767))
+        gain=.20 if name in WEAPONS else .48
+        result.append(int(max(-1,min(1,value*envelope))*gain*32767))
     if sys.byteorder!='little': result.byteswap()
     return result.tobytes()
 
@@ -77,16 +82,60 @@ def write_effects(directory):
                     out.writeframes(samples(name,variant))
     return directory
 
+def write_music(directory):
+    """Create a quiet, original 40-second cyberpunk synth loop in the user cache."""
+    directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
+    path=directory/'neon-patrol.wav'
+    if path.exists(): return path
+    bpm=96.;beat=60./bpm;eighth=beat/2;bars=16;frames=int(RATE*beat*4*bars)
+    # D minor, Bb major, F major and C major color the loop with a hopeful edge.
+    chords=((50,57,60,64,69),(46,53,57,62,65),(41,48,53,57,60),(48,55,60,64,67))
+    roots=(38,34,41,36)
+    def hz(note): return 440.*(2.**((note-69)/12.))
+    audio=array.array('h')
+    for i in range(frames):
+        t=i/RATE; beatpos=t/beat; bar=int(beatpos//4); chord=chords[bar%4]
+        within_bar=(beatpos%4)/4
+        # Slow detuned chord bed, bright eighth-note arpeggio and soft sub pulse.
+        pad=sum(math.sin(math.tau*hz(n)*t+index*.41) for index,n in enumerate(chord[:4]))*.035
+        step=int(t/eighth);step_in=step%8;local=t-step*eighth
+        arp_note=chord[(0,2,3,2,0,2,4,3)[step_in]]
+        arp_env=min(1.,local/.012)*math.exp(-local*5.0)
+        arp=(math.sin(math.tau*hz(arp_note)*t)+.22*math.sin(math.tau*hz(arp_note)*2.01*t))*arp_env*.075
+        beatno=int(beatpos);localbeat=t-beatno*beat
+        bassfreq=hz(roots[bar%4]-12)
+        bass=math.sin(math.tau*(bassfreq-12*localbeat)*localbeat)*math.exp(-localbeat*4.2)*.12
+        barbeat=beatno%4
+        kick=0.
+        if barbeat in (0,2):
+            kick=math.sin(math.tau*(54-28*localbeat)*localbeat)*math.exp(-localbeat*20)*.12
+        # Quiet high synth ticks keep the rhythm moving without a hard drum loop.
+        tick=(.012*math.sin(math.tau*1450*localbeat)*math.exp(-localbeat*36)) if barbeat in (1,3) else 0.
+        value=pad+arp+bass+kick+tick
+        # Gentle stereo spread on the arpeggio; no abrupt panning.
+        left=max(-.8,min(.8,value+arp*.20));right=max(-.8,min(.8,value-arp*.20))
+        audio.append(int(left*32767));audio.append(int(right*32767))
+    if sys.byteorder!='little': audio.byteswap()
+    with wave.open(str(path),'wb') as out:
+        out.setparams((2,2,RATE,0,'NONE','not compressed'))
+        out.writeframes(audio.tobytes())
+    return path
+
 class SoundBank:
-    def __init__(self, directory):
+    def __init__(self, directory, settings=None):
         self.voices=[];self.last={};self.muted=False;self.error='';self.variants={}
+        self.music=None;self.music_uri='';self.music_error='';self.music_volume=.16
+        self.settings=Path(settings) if settings else None
+        if self.settings:
+            try: self.music_volume=max(0.,min(.35,float(json.loads(self.settings.read_text()).get('music_volume',.16))))
+            except (OSError,ValueError,TypeError,AttributeError): pass
         try:
             import gi
             gi.require_version('Gst','1.0')
             from gi.repository import Gst
             Gst.init(None)
             self.Gst=Gst
-            self.directory=write_effects(Path(directory)/'v2')
+            self.directory=write_effects(Path(directory)/'v3')
             for _ in range(8):
                 player=Gst.ElementFactory.make('playbin',None)
                 sink=Gst.ElementFactory.make('fakesink',None)
@@ -94,6 +143,18 @@ class SoundBank:
                 player.set_property('video-sink',sink)
                 player.set_property('volume',.45)
                 self.voices.append([player,0.])
+            try:
+                music_path=write_music(Path(directory).parent/'music'/'v1')
+                self.music=Gst.ElementFactory.make('playbin',None)
+                sink=Gst.ElementFactory.make('fakesink',None)
+                if self.music is None or sink is None: raise RuntimeError('Missing music playback plugin')
+                self.music.set_property('video-sink',sink)
+                self.music_uri=music_path.as_uri()
+                self.music.set_property('uri',self.music_uri)
+                self.music.set_property('volume',self.music_volume)
+                self.music.connect('about-to-finish',lambda player: player.set_property('uri',self.music_uri))
+            except Exception as music_exc:
+                self.music_error=str(music_exc);self.music=None
         except Exception as exc:
             self.error=str(exc)
             self.close()
@@ -101,7 +162,10 @@ class SoundBank:
     def play(self,name):
         if self.muted or self.error or name not in EFFECTS: return
         now=time.monotonic()
-        if now-self.last.get(name,-10)<(.075 if name in ('laser','twin','scatter','plasma') else .12): return
+        if name in WEAPONS:
+            if now-self.last.get('weapon',-10)<.28: return
+            self.last['weapon']=now
+        elif now-self.last.get(name,-10)<.12: return
         voice=next((v for v in self.voices if now>=v[1]),None)
         if voice is None:
             if name in ('laser','twin','scatter','plasma','ricochet'): return
@@ -117,6 +181,24 @@ class SoundBank:
             self.error='Audio device unavailable'
         voice[1]=now+EFFECTS[name]+.1
 
+    def start_music(self):
+        if self.muted or self.music is None: return
+        self.music.set_property('volume',self.music_volume)
+        self.music.set_state(self.Gst.State.PLAYING)
+
+    def adjust_music(self,delta):
+        self.music_volume=max(0.,min(.35,round(self.music_volume+delta,2)))
+        if self.music is not None: self.music.set_property('volume',self.music_volume)
+        if self.settings:
+            self.settings.parent.mkdir(parents=True,exist_ok=True)
+            fd,name=tempfile.mkstemp(prefix='.audio-',dir=self.settings.parent)
+            try:
+                with os.fdopen(fd,'w') as stream: json.dump({'music_volume':self.music_volume},stream)
+                os.replace(name,self.settings)
+            finally:
+                if os.path.exists(name): os.unlink(name)
+        return self.music_volume
+
     def poll(self):
         for player,until in self.voices:
             bus=player.get_bus()
@@ -127,10 +209,13 @@ class SoundBank:
                 player.set_state(self.Gst.State.NULL)
 
     def hush(self):
+        if self.music is not None: self.music.set_state(self.Gst.State.NULL)
         for voice in self.voices:
             voice[0].set_state(self.Gst.State.NULL)
             voice[1]=0.
 
     def close(self):
         self.hush()
+        if self.music is not None: self.music.set_state(self.Gst.State.NULL)
+        self.music=None
         self.voices=[]

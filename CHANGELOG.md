@@ -1,3 +1,11 @@
+# 0.3.5
+
+- Autofire the primary weapon during manual flight.
+- Soften weapon chirps and limit them to a quieter sound cadence.
+- Add an original looping cyberpunk synth score for manual gameplay.
+- M toggles sound and music; - / = adjusts saved music volume.
+- Keep attract-mode screensaver audio silent.
+
 # 0.3.4
 
 - Restore the player ship from the rounded artwork sprite supplied with the project.
